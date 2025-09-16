@@ -1,0 +1,6 @@
+# --- --- --- Project --- --- ---
+
+#--- --- --- Python --- --- ---
+uv.lock
+.venv/
+__pycache__/
