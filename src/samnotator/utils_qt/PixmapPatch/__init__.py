@@ -1,0 +1,2 @@
+from ._background import PatchBackgroundRenderer
+from ._fontsymbols import PatchFontSymbolRenderer
