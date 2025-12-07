@@ -175,6 +175,14 @@ class AnnotationsController(QObject):
         return self.per_frame[frame_id].occupancy.get(xy, point_id) == point_id
     # End of def point_can_move
 
+
+    def get_frames_with_annotations(self) -> list[FrameID]:
+        """Return list of frame IDs that have at least one annotation."""
+        return list(self.per_frame.keys())
+    # End of def get_frames_with_annotations
+
+
+
     
     # --- --- --- BBOX CUD & getters --- --- ---
     # TODO: Implement BBOX annotations management

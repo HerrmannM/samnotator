@@ -2,9 +2,9 @@
 # STD
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
 # 3RD
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Signal, QSize
 from PySide6.QtGui import QImageReader, QImage
 # Project
 from samnotator.datamodel import FrameID
@@ -31,8 +31,8 @@ class FrameStub(Protocol):
     def load_data(self) -> QImage: ...
     """Load on call and return the frame image data."""
 
-    def description(self) -> str: ...
-    """Description  of the frame, e.g for status bar"""
+    def load_info(self) -> str: ...
+    """Loading information, e.g. path or video path with frame number."""
 
     def image_info(self) -> ImageInfo: ...
     """Get info about the image, potentially without loading full data."""
@@ -51,8 +51,8 @@ class FrameSubImplPath(FrameStub):
     def load_data(self) -> QImage:
         return QImage(self.path)
     
-    def description(self) -> str:
-        return f"File:{str(self.path)}"
+    def load_info(self) -> str:
+        return f"{str(self.path)}"
     
     def image_info(self) -> ImageInfo:
         return self.iinfo
@@ -62,26 +62,33 @@ class FrameSubImplPath(FrameStub):
 # End of class FrameSubImplPath
 
 
-
-def frame_stub_from_paths(paths:list[Path], is_video:bool, fps:float|None)->list[FrameStub]:
-    """Load frames from given image paths, maintaining order. Return a list of FrameStub."""
-    frame_count = len(paths) 
-    stubs: list[FrameStub] = []
-    for idx, path in enumerate(paths):
-        # Image info
+def frame_stub_from_paths(paths: list[Path], is_video: bool, fps: float | None) -> list[FrameStub]:
+    """Load frames from given image paths, maintaining order.  Skip unreadable images. Return a list of FrameStub."""
+    # 1) Collect readable images
+    # Header check (no full load, can still fail): https://doc.qt.io/qt-6/qimagereader.html#canRead
+    valid: list[tuple[Path, QSize]] = []
+    for path in paths:
         reader = QImageReader(str(path))
+        if not reader.canRead():
+            continue
         size = reader.size()
+        if size.isEmpty() or not size.isValid():
+            continue
+        valid.append((path, size))
+
+    # 2) Build stubs from valid images only 
+    frame_count = len(valid)
+    stubs: list[FrameStub] = []
+    for idx, (path, size) in enumerate(valid):
         image_info = ImageInfo(width=size.width(), height=size.height())
-        # Video info
         video_info = None
         if is_video:
             video_info = FrameInfoVideo(frame_index=idx, frame_count=frame_count, fps=fps)
-        # Stub
         stub = FrameSubImplPath(path=path, iinfo=image_info, viinfo=video_info)
         stubs.append(stub)
-    #
+
     return stubs
-# End of function frame_stub_from_paths
+#
 
 
 
@@ -99,11 +106,10 @@ class FrameController(QObject):
 
     current_frame_changed = Signal(object) # FrameID|None
 
-
     def __init__(self, parent:QObject|None=None):
         super().__init__(parent)
         # Fields
-        self.frames:dict[FrameID, tuple[FrameStub, int]] = {}
+        self.frameid_2_stub_index:dict[FrameID, tuple[FrameStub, int]] = {}
         self.frame_sequence: list[FrameID] = []
         self.current_frame_index: int | None = None  # Index in frame_sequence, not FrameID!
         # Reset
@@ -114,9 +120,9 @@ class FrameController(QObject):
     # --- --- --- Private helpers --- --- ---
 
     def _id_to_index(self, frame_id:FrameID) -> int:
-        if (stub_tuple := self.frames.get(frame_id)) is None:
+        if (stub_index := self.frameid_2_stub_index.get(frame_id)) is None:
             raise ValueError(f"Frame ID {frame_id} not found.")
-        return stub_tuple[1]
+        return stub_index[1]
     # End of def _id_to_index
 
 
@@ -147,14 +153,14 @@ class FrameController(QObject):
 
     def reset(self, stubs:list[FrameStub]|None):
         """Reset the frame controller with the given list of FrameStubs, or None to clear all frames. Emit frame_changed signal."""
-        self.frames:dict[FrameID, tuple[FrameStub, int]] = {}
+        self.frameid_2_stub_index:dict[FrameID, tuple[FrameStub, int]] = {}
         self.frame_sequence: list[FrameID] = []
         self.current_frame_index = None
         #
         if stubs is not None:
             for i, stub in enumerate(stubs, start=0):
                 frame_id = FrameID(i)
-                self.frames[frame_id] = stub, len(self.frame_sequence) # store stub and its index (without relying on it 'i' if we late change how we generate IDs, have an offset, etc...)
+                self.frameid_2_stub_index[frame_id] = stub, len(self.frame_sequence) # store stub and its index (without relying on it 'i' if we late change how we generate IDs, have an offset, etc...)
                 self.frame_sequence.append(frame_id)
             if len(self.frame_sequence) > 0: # Set to first frame, else is None
                 self.current_frame_index = 0
@@ -182,7 +188,7 @@ class FrameController(QObject):
 
     def get_frame_data(self, frame_id:FrameID) -> QImage:
         """ Load and return the image data for the given frame ID, or None if not found. No signal emitted."""
-        if (stub_tuple := self.frames.get(frame_id)) is None:
+        if (stub_tuple := self.frameid_2_stub_index.get(frame_id)) is None:
             raise ValueError(f"Frame ID {frame_id} not found.")
         return stub_tuple[0].load_data()
     # End of def get_frame_data
@@ -190,7 +196,7 @@ class FrameController(QObject):
     
     def get_frame_path(self, frame_id:FrameID) -> Path|None:
         """ Return the file path for the given frame ID, or None if not applicable. No signal emitted."""
-        if (stub_tuple := self.frames.get(frame_id)) is None:
+        if (stub_tuple := self.frameid_2_stub_index.get(frame_id)) is None:
             raise ValueError(f"Frame ID {frame_id} not found.")
         stub = stub_tuple[0]
         if isinstance(stub, FrameSubImplPath):
@@ -201,7 +207,7 @@ class FrameController(QObject):
 
     def frame_info(self, frame_id:FrameID) -> FrameInfo:
         """ Return the FrameInfo for the given frame ID, or None if not found. No signal emitted."""
-        if (stub_tuple := self.frames.get(frame_id)) is None:
+        if (stub_tuple := self.frameid_2_stub_index.get(frame_id)) is None:
             raise ValueError(f"Frame ID {frame_id} not found.")
         stub_info =stub_tuple[0].image_info()
         frame_info = FrameInfo(frame_id=frame_id, width=stub_info.width, height=stub_info.height)
@@ -209,7 +215,14 @@ class FrameController(QObject):
     # End of def frame_info
 
 
-    # --- --- --- Navifation helpers --- --- ---
+    def frame_load_info(self, frame_id:FrameID) -> str:
+        """ Return a string representation for the given frame ID, or None if not found. No signal emitted."""
+        if (stub_indx := self.frameid_2_stub_index.get(frame_id)) is None:
+            raise ValueError(f"Frame ID {frame_id} not found.")
+        return stub_indx[0].load_info()
+    # End of def frame_load_info
+
+    # --- --- --- Navigation helpers --- --- ---
 
     def next_frame(self) -> FrameID|None:
         """ Move to the next frame if possible. Emit frame_changed signal if changed."""
@@ -232,5 +245,40 @@ class FrameController(QObject):
         return self.get_current_frame_id()
     # End of def previous_frame
     
+
+    # --- --- --- File/Folder helper --- --- ---
+    
+    def open_images(self, paths:list[Path], image_extensions:set[str]|Literal["ALLEXT"] | None=None):
+        """
+        Open the given list of file paths as frames. Reset current frames. Emit frame_changed signal.
+
+        By default (image_extensions=None), filter for common image extensions : {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif", ".gif", ".webp"}
+        Else, provide a set of extensions (with leading dot) to filter - filering is case-insensitive.
+        Use image_extensions="ALLEXT" to load all files in the folder without filtering.
+        """
+        if image_extensions != "ALLEXT":
+            if image_extensions is None:
+                image_extensions = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif", ".gif", ".webp"}
+            else:
+                image_extensions = set(ext.lower() for ext in image_extensions)
+            #
+            paths = [p for p in paths if p.suffix.lower() in image_extensions and p.is_file()]
+        # Make stubs
+        stubs = frame_stub_from_paths(paths, is_video=False, fps=None)
+        self.reset(stubs)
+    # End of def open_images
+
+
+    def open_folder(self, folder_path:Path, image_extensions:set[str]|Literal["ALLEXT"] | None=None):
+        """
+        Open all images in the given folder path as frames, sorting them alphabetically. Reset current frames. Emit frame_changed signal.
+
+        See open_images() for image_extensions parameter.
+        """
+        paths = [p for p in sorted(folder_path.iterdir()) if p.is_file()]
+        self.open_images(paths, image_extensions=image_extensions)
+    # End of def open_folder
+
+
     
 # End of class FrameController

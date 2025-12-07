@@ -2,6 +2,7 @@
 # STD
 from collections import defaultdict
 from pathlib import Path
+from typing import Any
 # 3RD
 from PySide6.QtCore import QObject, Signal, SignalInstance, Slot
 from PySide6.QtGui import QColor
@@ -171,4 +172,37 @@ class AppController(QObject):
         for instance_id, detections in detections_by_instance.items():
             self.ctl_instances.update_instance(instance_id, detections=detections)
     # End of def on_inference_result
+
+    
+    # --- --- --- Save/Load --- --- ---
+    def save_to_folder(self, dir_path:Path) -> None:
+        # Create annotations folder
+        data_to_save: dict[str, Any] = {}
+
+        # Only save frames that have annotations
+        frame_data: dict[FrameID, str] = {}
+        for frame_id in self.ctl_annotations.get_frames_with_annotations():
+            frame_load = self.ctl_frames.frame_load_info(frame_id)
+            frame_data[frame_id] = frame_load
+        data_to_save["frames"] = frame_data
+
+        # Save all instances
+        instance_data: dict[InstanceID, dict[str, Any]] = {}
+        for instance_id, instance_info in self.ctl_instances.instances.items():
+            instance_data[instance_id] = instance_info.instance.to_dict()
+        data_to_save["instances"] = instance_data
+
+        # Save annotations
+        point_annotation_data:dict[FrameID, list[dict]] = {}
+        for frame_id in frame_data.keys():
+            point_annotations = self.ctl_annotations.get_frame_points(frame_id)
+            point_annotation_data[frame_id] = [pa.to_dict() for pa in point_annotations]
+        data_to_save["point_annotations"] = point_annotation_data
+
+        # Write to disk as JSON
+        data_path = dir_path / "annotations.json"
+        import json
+        with open(data_path, "w") as f:
+            json.dump(data_to_save, f, indent=4)
+
 # End of class AppController

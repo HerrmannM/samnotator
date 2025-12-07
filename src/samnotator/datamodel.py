@@ -2,7 +2,7 @@
 # STD
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import NewType
+from typing import Any, NewType
 # 3RD
 import numpy as np
 from numpy.typing import NDArray
@@ -38,6 +38,14 @@ class Instance:
     category_name:str|None
     #
     detections:dict[FrameID, InstanceDetection]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "instance_id": self.instance_id,
+            "instance_name": self.instance_name,
+            "instance_colour": self.instance_colour,
+            "category_name": self.category_name,
+        }
     
 
 # --- --- --- Points Annotations --- --- ---
@@ -61,4 +69,14 @@ class PointAnnotation:
     frame_id:FrameID
     instance_id:InstanceID
     point:Point
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "point_id": self.point_id,
+            "frame_id": self.frame_id,
+            "instance_id": self.instance_id,
+            "position": list(self.point.position),
+            "kind": int(self.point.kind),
+        }
+# End of class PointAnnotation
    

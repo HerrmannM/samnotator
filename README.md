@@ -3,8 +3,19 @@
 A simple enough image anotation application for [SAM](https://github.com/facebookresearch/sam3), written in Python/Qt/PySide6, for learning purpose.
 Samnotator currently only supports simple point annotations.
 
+# Run
+
+First, you need to get a model. See below.
+
+```sh
+source .venv/bin/activate
+PYTHONPATH=src python -m samnotator.main --path test/20251205_140740.jpg 
+```
+
+
 # Get models
 Models must be downloaded separately.
+For now, only SAM3 is implemented.
 
 ## SAM3
 
