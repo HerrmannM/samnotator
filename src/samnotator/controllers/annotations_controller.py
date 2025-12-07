@@ -14,66 +14,49 @@ class _PerFrame:
     
     def __init__(self, frame_id:FrameID) -> None:
         self.frame_id:FrameID = frame_id
-        self.annotations:dict[PointID, PointAnnotation] = {}
         self.occupancy:dict[PointXY, PointID] = {}
-    #
+    # End of def __init__
+    
 
     def is_free(self, point_xy:PointXY) -> bool:
         return point_xy not in self.occupancy
-    #
+    # End of def is_free
+
 
     def create(self, annotation:PointAnnotation) -> None:
+        position = annotation.point.position
         assert annotation.frame_id == self.frame_id, "Annotation frame ID does not match controller frame ID"
-        position = annotation.point.position
         assert self.is_free(position), "Point position is already occupied"
-        self.annotations[annotation.point_id] = annotation
         self.occupancy[position] = annotation.point_id
-    #
+    # End of def create
+    
 
-    def delete(self, point_id:PointID) -> PointAnnotation:
-        annotation = self.annotations.pop(point_id, None)
-        assert annotation is not None, "Point ID not found"
-        del self.occupancy[annotation.point.position]
-        return annotation
-    #
+    def delete(self, annotation:PointAnnotation) -> None:
+        pid = self.occupancy.pop(annotation.point.position, None)
+        assert pid == annotation.point_id, "Point ID does not match occupancy record"
+    # End of def delete
 
-    def update_move(self, point_id:PointID, new_position:PointXY) -> PointAnnotation|None:
-        """Moving a point to a new position. Moving on itseld is not an error. Return updated annotaiton if moved, else None."""
-        annotation = self.annotations.pop(point_id, None)
-        assert annotation is not None, "Point ID not found"
-        position = annotation.point.position
+
+    def update_move(self, annotation:PointAnnotation, new_position:PointXY) -> bool:
+        """Moving a point to a new position. Moving on itself is not an error. Return True if moved, else False."""
+        old_position = annotation.point.position
+        point_id = annotation.point_id
+        assert self.occupancy.get(old_position, None) == point_id, "Point ID does not match occupancy record"
         # No move
-        if position == new_position:
-            self.annotations[point_id] = annotation
-            return None
+        if old_position == new_position:
+            return False
         else: # Move somewhere else
             assert self.is_free(new_position), "New point position is already occupied"
-            del self.occupancy[position]
-            new_point = replace(annotation.point, position=new_position)
-            new_annotation = replace(annotation, point=new_point)
-            self.annotations[point_id] = new_annotation
+            del self.occupancy[old_position]
             self.occupancy[new_position] = point_id
-            return new_annotation
+            return True
         #
-    #
+    # End of def update_move
 
-    def update_kind(self, point_id:PointID, new_kind:PointKind|None = None) -> PointAnnotation:
-        """Update kind or toggle one None"""
-        annotation = self.annotations.get(point_id, None)
-        assert annotation is not None, "Point ID not found"
-        if new_kind is None:
-            current_kind = annotation.point.kind
-            new_kind = PointKind.POSITIVE if current_kind == PointKind.NEGATIVE else PointKind.NEGATIVE
-        new_point = replace(annotation.point, kind=new_kind)
-        new_annotation = replace(annotation, point=new_point)
-        self.annotations[point_id] = new_annotation
-        return new_annotation
-    # End of def update_kind
-
-
+    
     def __len__(self) -> int:
-        return len(self.annotations)
-    #
+        return len(self.occupancy)
+    # End of def __len__
 # End of class _PerFrame
 
 
@@ -132,7 +115,7 @@ class AnnotationsController(QObject):
             if (annotation := self.annotations.pop(pid, None)) is not None:
                 frame = self.per_frame.get(annotation.frame_id, None)
                 assert frame is not None, "Inconsistent state: annotation frame not found"
-                frame.delete(pid)
+                frame.delete(annotation)
                 if len(frame) == 0:
                     del self.per_frame[annotation.frame_id]
                 deleted_annotations.append(annotation)
@@ -155,12 +138,14 @@ class AnnotationsController(QObject):
             return None
         #
         frame = self.per_frame[annotation.frame_id]
-        updated_annotation = frame.update_move(point_id, new_position)
-        if updated_annotation is not None:
-            self.annotations[point_id] = updated_annotation
-            self.point_list_changed.emit([updated_annotation], CUD.UPDATE)
-        #
-        return updated_annotation
+        if frame.update_move(annotation, new_position):
+            new_point = replace(annotation.point, position=new_position)
+            new_annotation = replace(annotation, point=new_point)
+            self.annotations[point_id] = new_annotation
+            self.point_list_changed.emit([new_annotation], CUD.UPDATE)
+            return new_annotation
+        else:
+            return annotation
     # End of def update_move_point
 
 
@@ -168,12 +153,17 @@ class AnnotationsController(QObject):
         if (annotation := self.annotations.get(point_id, None)) is None:
             return None
         #
-        frame = self.per_frame[annotation.frame_id]
-        updated_annotation = frame.update_kind(point_id, new_kind)
-        self.annotations[point_id] = updated_annotation
-        self.point_list_changed.emit([updated_annotation], CUD.UPDATE)
+        current_kind = annotation.point.kind
+        if new_kind is None:
+            new_kind = PointKind.POSITIVE if current_kind == PointKind.NEGATIVE else PointKind.NEGATIVE
+        elif new_kind == current_kind:
+            return annotation
         #
-        return updated_annotation
+        new_point = replace(annotation.point, kind=new_kind)
+        new_annotation = replace(annotation, point=new_point)
+        self.annotations[point_id] = new_annotation
+        self.point_list_changed.emit([new_annotation], CUD.UPDATE)
+        return new_annotation
     # End of def update_kind
 
 
@@ -193,7 +183,13 @@ class AnnotationsController(QObject):
         frame = self.per_frame.get(frame_id, None)
         if frame is None:
             return []
-        return list(frame.annotations.values())
+        else:
+            result:list[PointAnnotation] = []
+            for _, pid in frame.occupancy.items():
+                annotation = self.annotations.get(pid, None)
+                if annotation is not None:
+                    result.append(annotation)
+            return result
     # End of def get_frame_points
 
 
@@ -220,10 +216,12 @@ class AnnotationsController(QObject):
         """Slot to delete all point annotations for a given instance ID."""
         to_delete:list[PointID] = [pa.point_id for pa in self.annotations.values() if pa.instance_id == instance_id]
         self.delete_point_list(to_delete)
+    # End of def delete_instance
+
 
     def delete_frame(self, frame_id:FrameID) -> None:
         """Slot to delete all point annotations for a given frame ID."""
         to_delete:list[PointID] = [pa.point_id for pa in self.annotations.values() if pa.frame_id == frame_id]
         self.delete_point_list(to_delete)
-
+    # End of def delete_frame
 # End of class AnnotationsController

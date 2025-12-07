@@ -125,6 +125,7 @@ class AnnotatorScene(QGraphicsScene):
     @Slot(object)
     def on_current_instance_changed(self, instance_id:InstanceID|None) -> None:
         """Set the instance with `instance_id` as selected (or None for no selection), updating Z values accordingly."""
+        self.clearSelection()
         for iid, layer in self.instance_layers.items():
             if iid == instance_id:
                 layer.layer_points.setZValue(ZValues.SELECTED_POINTS)

@@ -80,3 +80,32 @@ class PointAnnotation:
         }
 # End of class PointAnnotation
    
+
+   
+# --- --- --- Boxes Annotations --- --- ---
+
+BBoxID = NewType("BBoxID", int)
+
+@dataclass(frozen=True, slots=True)
+class BBox:
+    top_left:PointXY
+    bottom_right:PointXY
+    kind:PointKind
+
+    
+@dataclass(frozen=True, slots=True)
+class BBoxAnnotation:
+    bbox_id:BBoxID
+    frame_id:FrameID
+    instance_id:InstanceID
+    bbox:BBox
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "bbox_id": self.bbox_id,
+            "frame_id": self.frame_id,
+            "instance_id": self.instance_id,
+            "top_left": list(self.bbox.top_left),
+            "bottom_right": list(self.bbox.bottom_right),
+            "kind": int(self.bbox.kind),
+        }

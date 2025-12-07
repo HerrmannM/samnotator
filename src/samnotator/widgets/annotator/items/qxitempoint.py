@@ -1,6 +1,6 @@
 # --- --- --- Imports --- --- ---
 # STD
-from typing import cast, TYPE_CHECKING
+from typing import cast
 # 3RD
 from PySide6.QtCore import Qt, QRectF, QPointF
 from PySide6.QtGui import QPixmap
@@ -38,7 +38,7 @@ class QXItemPoint(QGraphicsPixmapItem):
             self.point_kind = kind
 
         if point_xy is not None:
-            center = pixmap.rect().center()
+            center = self.pixmap().rect().center()
             x,y = point_xy
             self.setPos(x+0.5, y+0.5)
             self.setOffset(-center.x(), -center.y())

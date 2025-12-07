@@ -230,8 +230,9 @@ class InstanceController(QObject):
             return None
         else:
             assert instance_id in self.instances, f"Instance ID {instance_id} does not exist."
-            self.current_instance_id = instance_id
-            self.current_instance_changed.emit(instance_id)
+            if instance_id != self.current_instance_id:
+                self.current_instance_id = instance_id
+                self.current_instance_changed.emit(instance_id)
     # End of def set_current_instance
 
 
