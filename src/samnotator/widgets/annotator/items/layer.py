@@ -3,12 +3,13 @@
 from dataclasses import dataclass
 # 3RD
 from PySide6.QtCore import QRectF
-from PySide6.QtGui import QPixmap, QPainter
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsItem
 # Project
 from samnotator.datamodel import InstanceID
 from samnotator.datamodel import PointID
 from ..base import ZValues
+from .qxitempoint import QXItemPoint
 
 
 
@@ -16,20 +17,16 @@ from ..base import ZValues
 
 class LayerItem(QGraphicsItem):
     """A layer item able to hold other items as children, without visual contents itself."""
+
     def __init__(self, isntance_id:InstanceID, parent=None):
         super().__init__(parent)
         self.instance_id = isntance_id
-        # No visual contents: this item only serves as a container
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemHasNoContents, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemHasNoContents, True) # No visual contents, only serves as a container
+    # End of def __init__
 
     def boundingRect(self) -> QRectF:
-        # Not used (no painting), but must be implemented
-        return QRectF()
-
-    def paint(self, painter:QPainter, option, widget=None):
-        # No painting
-        pass
-    #
+        return QRectF() # Not used (no painting), but must be implemented
+    # End of def boundingRect
 #
 
 

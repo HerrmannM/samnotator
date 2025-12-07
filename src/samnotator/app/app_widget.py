@@ -72,10 +72,15 @@ class AppWidget(QWidget):
 
         #  Connections
         self.annotator.zoom_connect(self.zoom_selector)
+        #
         self.qs_prev_image = QShortcut(QKeySequence(Qt.Key.Key_Left), self)
         self.qs_prev_image.activated.connect(self.prev_frame)
+        #
         self.qs_next_image = QShortcut(QKeySequence(Qt.Key.Key_Right), self)
         self.qs_next_image.activated.connect(self.next_frame)
+        #
+        self.qs_deselect_all = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
+        self.qs_deselect_all.activated.connect(self.deselect_all)
     # End of def _init_ui
 
 
@@ -97,4 +102,10 @@ class AppWidget(QWidget):
     def prev_frame(self) -> None:
         self.controller.ctl_frames.previous_frame()
     # End of def prev_frame
+
     
+    @Slot()
+    def deselect_all(self) -> None:
+        self.controller.ctl_instances.set_current_instance(None)
+    # End of def deselect_all
+# End of class AppWidget
