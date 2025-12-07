@@ -5,7 +5,7 @@ from dataclasses import replace
 from PySide6.QtCore import QObject, Signal, Slot
 # Project
 from samnotator.datamodel import FrameID, InstanceID
-from samnotator.datamodel import PointAnnotation, PointID, Point, PointXY
+from samnotator.datamodel import PointAnnotation, PointID, Point, PointXY, PointKind
 from samnotator.utils import CUD
 
 
@@ -56,6 +56,19 @@ class _PerFrame:
             return new_annotation
         #
     #
+
+    def update_kind(self, point_id:PointID, new_kind:PointKind|None = None) -> PointAnnotation:
+        """Update kind or toggle one None"""
+        annotation = self.annotations.get(point_id, None)
+        assert annotation is not None, "Point ID not found"
+        if new_kind is None:
+            current_kind = annotation.point.kind
+            new_kind = PointKind.POSITIVE if current_kind == PointKind.NEGATIVE else PointKind.NEGATIVE
+        new_point = replace(annotation.point, kind=new_kind)
+        new_annotation = replace(annotation, point=new_point)
+        self.annotations[point_id] = new_annotation
+        return new_annotation
+    # End of def update_kind
 
 
     def __len__(self) -> int:
@@ -149,6 +162,19 @@ class AnnotationsController(QObject):
         #
         return updated_annotation
     # End of def update_move_point
+
+
+    def update_kind(self, point_id:PointID, new_kind:PointKind|None = None) -> PointAnnotation|None:
+        if (annotation := self.annotations.get(point_id, None)) is None:
+            return None
+        #
+        frame = self.per_frame[annotation.frame_id]
+        updated_annotation = frame.update_kind(point_id, new_kind)
+        self.annotations[point_id] = updated_annotation
+        self.point_list_changed.emit([updated_annotation], CUD.UPDATE)
+        #
+        return updated_annotation
+    # End of def update_kind
 
 
     def get_point_annotation(self, point_id:PointID) -> PointAnnotation|None:

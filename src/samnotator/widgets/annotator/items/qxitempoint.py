@@ -16,7 +16,6 @@ class QXItemPoint(QGraphicsPixmapItem):
     def __init__(self, pid:PointID, kind:PointKind, iid:InstanceID, pixmap:QPixmap, position:PointXY, parent=None) -> None:
         super().__init__(pixmap, parent)
         self.point_id = pid
-        self.point_kind = kind
         self.instance_id = iid
 
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
@@ -27,13 +26,16 @@ class QXItemPoint(QGraphicsPixmapItem):
         # If we have perf issue... we should not with the amount of mark/scene
         #self.setShapeMode(QGraphicsPixmapItem.ShapeMode.BoundingRectShape)
 
-        self.update(pixmap, position)
+        self.update(pixmap, kind, position)
     # End of def __init__
 
 
-    def update(self, pixmap:QPixmap|None, point_xy:PointXY|None) -> None:
+    def update(self, pixmap:QPixmap|None, kind:PointKind|None=None, point_xy:PointXY|None=None) -> None:
         if pixmap is not None:
             self.setPixmap(pixmap)
+
+        if kind is not None:
+            self.point_kind = kind
 
         if point_xy is not None:
             center = pixmap.rect().center()
@@ -89,5 +91,12 @@ class QXItemPoint(QGraphicsPixmapItem):
 
             # commit the move to the controller
             scene.annotations_controller.update_move_point(self.point_id, PointXY((x_int, y_int)))
+    # End of def mouseReleaseEvent
+    
+    def mouseDoubleClickEvent(self, event):
+        super().mouseDoubleClickEvent(event)
+        scene = cast(AnnotatorSceneProtocol, self.scene())
+        scene.annotations_controller.update_kind(self.point_id, None) # Toggle kind
+    # End of def mouseDoubleClickEvent
 # End of class QXItemPoint
 

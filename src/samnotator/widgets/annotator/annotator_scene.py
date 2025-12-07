@@ -163,8 +163,9 @@ class AnnotatorScene(QGraphicsScene):
 
     
     def update_point_annotation(self, pa:PointAnnotation) -> None:
-        mark:QPixmap = self.instance_controller.get(pa.instance_id).point_marks[pa.point.kind]
-        self.instance_layers[pa.instance_id].point_items[pa.point_id].update(mark, pa.point.position)
+        kind = pa.point.kind
+        mark:QPixmap = self.instance_controller.get(pa.instance_id).point_marks[kind]
+        self.instance_layers[pa.instance_id].point_items[pa.point_id].update(pixmap=mark, kind=kind, point_xy=pa.point.position)
     # End of def update_point_annotation
 
 
