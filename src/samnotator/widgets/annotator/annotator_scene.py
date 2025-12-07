@@ -2,7 +2,6 @@
 # --- --- --- Imports --- --- ---
 # STD
 from typing import cast
-from enum import IntEnum
 from dataclasses import dataclass
 # 3RD
 from PySide6.QtCore import Qt, QObject, Signal, Slot, QRectF, QPointF
@@ -12,158 +11,13 @@ from PySide6.QtGui import QKeyEvent, QEnterEvent, QFocusEvent, QResizeEvent
 from PySide6.QtWidgets import QGraphicsScene, QGraphicsPixmapItem, QGraphicsItem, QGraphicsSceneMouseEvent
 # Project
 from samnotator.controllers.annotations_controller import AnnotationsController
-from samnotator.controllers.frame_controller import FrameController
 from samnotator.controllers.instance_controller import InstanceController
 from samnotator.datamodel import FrameID, InstanceID
 from samnotator.datamodel import PointAnnotation, PointKind, PointID, PointXY, Point
 from samnotator.utils._CUD import CUD
-
-
-class ZValues(IntEnum):
-    BACKGROUND = 0
-    MASK = 1
-    BBOX = 2
-    POINTS = 3
-    SELECTED_BBOX = 4
-    SELECTED_POINTS = 5
-#
-
-
-
-class LayerItem(QGraphicsItem):
-    def __init__(self, isntance_id:InstanceID, parent=None):
-        super().__init__(parent)
-        self.instance_id = isntance_id
-        # No visual contents: this item only serves as a container
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemHasNoContents, True)
-
-    def boundingRect(self) -> QRectF:
-        # Not used (no painting), but must be implemented
-        return QRectF()
-
-    def paint(self, painter, option, widget=None):
-        # No painting
-        pass
-    #
-#
-
-
-
-class QXItemPoint(QGraphicsPixmapItem):
-
-    def __init__(self, pid:PointID, kind:PointKind, iid:InstanceID, pixmap:QPixmap, position:PointXY, parent=None) -> None:
-        super().__init__(pixmap, parent)
-        self.point_id = pid
-        self.point_kind = kind
-        self.instance_id = iid
-
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
-
-        # If we have perf issue... we should not with the amount of mark/scene
-        #self.setShapeMode(QGraphicsPixmapItem.ShapeMode.BoundingRectShape)
-
-        self.update(pixmap, position)
-    # End of def __init__
-
-
-    def update(self, pixmap:QPixmap|None, point_xy:PointXY|None) -> None:
-        if pixmap is not None:
-            self.setPixmap(pixmap)
-
-        if point_xy is not None:
-            center = pixmap.rect().center()
-            x,y = point_xy
-            self.setPos(x+0.5, y+0.5)
-            self.setOffset(-center.x(), -center.y())
-    # End of def update
-
-
-    def itemChange(self, change: QGraphicsItem.GraphicsItemChange, value):
-        scene = cast(AnnotatorScene, self.scene())
-
-        # 1) Selection change: tell controller which instance is current
-        if change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
-            scene.instance_controller.set_current_instance(self.instance_id)
-
-        # 2) Position change: clamp to scene rect and check for collisions
-        if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange and scene is not None:
-            new_pos: QPointF = value
-            scene_rect: QRectF = scene.sceneRect()
-
-            # 1) Clamp to scene rect (keep center inside) and centre on pixel
-            x = int(max(scene_rect.left(),  min(new_pos.x(), scene_rect.right())))
-            y = int(max(scene_rect.top(),   min(new_pos.y(), scene_rect.bottom())))
-
-            # 2) Collision check
-            if scene.frame_id is None:
-                return self.pos()
-            if scene.annotations_controller.point_can_move(point_id=self.point_id, frame_id=scene.frame_id, xy=PointXY((x, y))):
-                return QPointF(x+0.5, y+0.5)
-            else: # Position is already occupied: reject the move, stay where we are
-                return self.pos()
-
-        return super().itemChange(change, value)
-    # End of def itemChange
-
-
-    def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent) -> None:
-        super().mouseReleaseEvent(event)
-
-        # Check for left button release
-        if event.button() == Qt.MouseButton.LeftButton:
-            # distinguish drag from click
-            down_pos = event.buttonDownScenePos(Qt.MouseButton.LeftButton)
-            up_pos = event.scenePos()
-            if down_pos == up_pos:
-                return
-
-            scene = self.scene()
-            assert isinstance(scene, AnnotatorScene)
-            if scene.frame_id is None:
-                return
-
-            # final scene pos was already clamped/snaped in itemChange
-            final_pos: QPointF = self.pos()
-            x_int = int(final_pos.x())
-            y_int = int(final_pos.y())
-
-            # commit the move to the controller
-            scene.annotations_controller.update_move_point(self.point_id, PointXY((x_int, y_int)))
-# End of class QXItemPoint
-
-
-@dataclass(slots=True)
-class Layer:
-    instance_id:InstanceID
-    # Layers:
-    layer_points:LayerItem
-    layer_bbox:LayerItem
-    layer_mask:LayerItem
-    #
-    point_items:dict[PointID, QXItemPoint]
-    markers:list[QPixmap]
-    mask:QGraphicsPixmapItem|None
-    #
-
-    # --- --- --- Helpers --- --- ---
-
-    @classmethod
-    def default(cls, instance_id:InstanceID) -> Layer:
-        lp = LayerItem(instance_id)
-        lp.setZValue(ZValues.POINTS)
-        #
-        lb = LayerItem(instance_id)
-        lb.setZValue(ZValues.BBOX)
-        #
-        lm = LayerItem(instance_id)
-        lm.setZValue(ZValues.MASK)
-        #
-        return cls(instance_id = instance_id, layer_points = lp, layer_bbox = lb, layer_mask = lm, point_items = {}, markers = [], mask = None)
-    # End of classmethod def default
-#
+from .items.qxitempoint import QXItemPoint
+from .items.layer import Layer, LayerItem
+from .base import ZValues, AnnotatorSceneProtocol
 
 
 class AnnotatorScene(QGraphicsScene):
