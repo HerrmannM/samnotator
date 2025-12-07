@@ -42,7 +42,7 @@ class MainWindow(QMainWindow):
 
         # Sizing
         self._geom_restore()
-    #
+    # End of def __init__
 
 
     def _init_uit(self):
@@ -54,13 +54,8 @@ class MainWindow(QMainWindow):
         #
         self.app_widget.connect_position_update(self.status_bar_controller.update_position)
     # End of def _init_uit
-
     
-    # --- --- --- Component Setup --- --- ---
 
-
-    # --- --- --- Menu bar --- --- ---
-    
     def _create_menus(self) -> None:
         menu_bar = self.menuBar()
         file_menu = menu_bar.addMenu("&File")
@@ -88,16 +83,20 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
         file_menu.addAction(act_save)
         file_menu.addAction(act_save_as)
+    # End of def _create_menus
 
+    
+    # --- --- --- Private helpers --- --- ---
 
-    # --- --- --- Geometry --- --- ---
+    # --- Geometry
 
     def _geom_win_state(self) -> Literal["max", "normal"]:
         if self.isMaximized():
             return "max"
         else:
             return "normal"
-    #
+    # End of def _geom_win_state
+
 
     def _geom_init(self):
         """Compute initial "normal" size geometry"""
@@ -110,12 +109,14 @@ class MainWindow(QMainWindow):
         frame = self.frameGeometry()
         frame.moveCenter(available.center())
         self.move(frame.topLeft())
-    #
+    # End of def _geom_init
+
 
     def _geom_save(self):
         self.settings.setValue("geometry", self.saveGeometry())
         self.settings.setValue("windowState", self._geom_win_state())
-    #
+    # End of def _geom_save
+
 
     def _geom_restore(self):
         self._geom_init()  # Default geometry
@@ -129,7 +130,26 @@ class MainWindow(QMainWindow):
         #    else: self.showNormal()
         #else:
         #    self._geom_init()
-    #
+    # End of def _geom_restore
+
+
+    # --- File dialogs and saving
+
+
+    def _pick_folder(self, title: str="Open folder", start_dir:Path|None=None) -> Path | None:
+        start_dir_ = str(start_dir or self.current_save_dir or Path.cwd())
+        dialog = QFileDialog(self, title, start_dir_)
+        dialog.setFileMode(QFileDialog.FileMode.Directory)
+        if dialog.exec() == QFileDialog.DialogCode.Accepted:
+            return Path(dialog.selectedFiles()[0])
+        else:
+            return None
+    # End of def _pick_folder
+
+
+    def _write_to_dir(self, dir_path:Path) -> None:
+        self.app_controller.save_to_folder(dir_path)
+    # End of def _write_to_dir
 
 
     # --- --- --- Events --- --- ---
@@ -137,7 +157,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         self._geom_save()
         super().closeEvent(event)
-    #
+    # End of def closeEvent
 
     
     # --- --- --- Actions --- --- ---
@@ -153,40 +173,10 @@ class MainWindow(QMainWindow):
     # End of def open_files
 
 
-    #def open_directory(self) -> None:
-    #    dir_str = QFileDialog.getExistingDirectory(self, "Open Directory")
-    #    if dir_str:
-    #        self.app_controller.ctl_frames.open_folder(Path(dir_str))
-    ## End of def open_directory
-
-    
-    
     def open_directory(self) -> None:
-        start_dir = str(self.current_save_dir or Path.cwd())
-
-        dialog = QFileDialog(self, "Open folder", start_dir)
-
-        # 1) select folders, not files
-        dialog.setFileMode(QFileDialog.FileMode.Directory)
-
-        # 2) allow files to be shown in the list (right pane)
-        dialog.setOption(QFileDialog.Option.ShowDirsOnly, False)
-
-        # 3) optional but often helps to get the full Qt dialog with a files view
-        dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
-
-        # 4) show both files and directories, hide . and ..
-        dialog.setFilter(QDir.Filter.AllEntries | QDir.Filter.NoDotAndDotDot)
-
-        if dialog.exec() != QFileDialog.DialogCode.Accepted:
-            return
-
-        # with FileMode.Directory, the selection will be a folder
-        folder = Path(dialog.selectedFiles()[0])
-        self.current_save_dir = folder
-        self.app_controller.ctl_frames.open_folder(folder)
-    #
-
+        if (folder := self._pick_folder()) is not None:
+            self.app_controller.ctl_frames.open_folder(folder)
+    # End of def open_directory
 
 
     def save(self) -> None:
@@ -200,43 +190,10 @@ class MainWindow(QMainWindow):
 
     def save_as(self) -> None:
         # starting location: current folder if we have one, else CWD
-        start_dir = str(self.current_save_dir or Path.cwd())
-        base_dir_str = QFileDialog.getExistingDirectory(self, "Select folder to save in", start_dir,)
-        if base_dir_str:
-            base_dir = Path(base_dir_str)
+        if (base_dir := self._pick_folder("Select folder to save in")) is not None:
             self.current_save_dir = base_dir
             self._write_to_dir(base_dir)
     # End of def save_as
-
-    
-    def _pick_dir(self, legend:str, start_dir:str) -> Path|None:
-        dialog = QFileDialog(self, legend, start_dir)
-
-        # 1) select folders, not files
-        dialog.setFileMode(QFileDialog.FileMode.Directory)
-
-        # 2) allow files to be shown in the list (right pane)
-        dialog.setOption(QFileDialog.Option.ShowDirsOnly, False)
-
-        # 3) optional but often helps to get the full Qt dialog with a files view
-        dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
-
-        # 4) show both files and directories, hide . and ..
-        dialog.setFilter(QDir.Filter.AllEntries | QDir.Filter.NoDotAndDotDot)
-
-        if dialog.exec() != QFileDialog.DialogCode.Accepted:
-            return
-
-        # with FileMode.Directory, the selection will be a folder
-        folder = Path(dialog.selectedFiles()[0])
-        self.current_save_dir = folder
-
-    
-    def _write_to_dir(self, dir_path:Path) -> None:
-        self.app_controller.save_to_folder(dir_path)
-    # End of def _write_to_dir
-
-
 # End of class MainWindow
 
 
