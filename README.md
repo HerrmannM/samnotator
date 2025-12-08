@@ -3,6 +3,11 @@
 A simple enough image anotation application for [SAM](https://github.com/facebookresearch/sam3), written in Python/Qt/PySide6, for learning purpose.
 Samnotator currently only supports simple point annotations.
 
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/91b2a3c9-17f9-4d7f-b7fc-0f7cb230c74d" alt="Samnotator main UI" width="45%">
+  <img src="https://github.com/user-attachments/assets/80e7d1d9-227b-465b-bc45-7bf29605b291" alt="Annotation example" width="45%">
+</p>
+
 # Run
 
 First, you need to get a model. See below.

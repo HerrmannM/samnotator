@@ -287,6 +287,7 @@ class InstanceController(QObject):
         detection = instance.instance.detections.get(frame_id)
         if detection is None or detection.mask is None:
             return None
-        return renderer.mask_renderer.get(detection.mask, plain_mask)
+        #return renderer.mask_renderer.get(detection.mask, "fancy" if not plain_mask else "plain")
+        return renderer.mask_renderer.get(detection.mask, "fancy")
     # End of def get_mask_for
 # End of class InstanceController
