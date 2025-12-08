@@ -16,21 +16,27 @@ from samnotator.widgets.instances.instance_renderers import MarkRenderer, MaskRe
 @dataclass(frozen=True, slots=True)
 class InstanceInfo:
     instance:Instance
+    # Render data
     point_marks:list[QPixmap]
-    # UI state
+    main_colour:QColor
+    contrast_colour:QColor
     marker_size: int = 23
+    bbox_handle_size: int = 8
+    # Display options
     show_markers: bool = True
     show_mask: bool = True
     show_plain_mask: bool = False
 # End of dataclass _InstanceState
 
 
-def _make_point_marker_renderer(symbols:list[str], colour_name:str) -> MarkRenderer:
-    colour = QColor(colour_name)
-    if not colour.isValid():
-        colour = QColor("red")
-    contrast_colour = pick_contrast_colour(colour)
-    return MarkRenderer(symbols = symbols, main_colour=colour, contrast_colour=contrast_colour, shape_size_ratio=0.9, symbol_size_ratio=0.75, aa_margin=1)
+def _make_point_marker_renderer(symbols:list[str], main_colour:QColor, contrast_colour:QColor) -> MarkRenderer:
+    if not main_colour.isValid():
+        main_colour = QColor("red")
+        contrast_colour = pick_contrast_colour(main_colour)
+    if not contrast_colour.isValid():
+        contrast_colour = pick_contrast_colour(main_colour)
+    #
+    return MarkRenderer(symbols = symbols, main_colour=main_colour, contrast_colour=contrast_colour, shape_size_ratio=0.9, symbol_size_ratio=0.75, aa_margin=1)
 # End of def _make_point_marker_renderer
 
 
@@ -72,24 +78,24 @@ class InstanceController(QObject):
 
     # --- --- --- Instance CUD --- --- ---
 
-    def create_instance(self, name:str, colour:QColor, category_name:str|None) -> InstanceID:
+    def create_instance(self, name:str, main_colour:QColor, category_name:str|None) -> InstanceID:
         # Instance
         instance_id = self._get_id()
         instance = Instance(
             instance_id=instance_id,
             instance_name=name,
-            instance_colour=colour.name(),
             category_name=category_name,
             detections={}
         )
         # Point mark renderer
         # Order of symbols must match PointKind enum (see datamodel.py): NEGATIVE=0, POSITIVE=1
-        point_mark_renderer = _make_point_marker_renderer(symbols=["-", "+"], colour_name=instance.instance_colour)
-        mask_renderer = MaskRenderer(main_colour=colour, contrast_colour=pick_contrast_colour(colour))
+        contrast_colour = pick_contrast_colour(main_colour)
+        point_mark_renderer = _make_point_marker_renderer(symbols=["-", "+"], main_colour=main_colour, contrast_colour=contrast_colour)
+        mask_renderer = MaskRenderer(main_colour=main_colour, contrast_colour=pick_contrast_colour(main_colour))
         self.renderers[instance_id] = InstanceRenderer(mark_renderer=point_mark_renderer, mask_renderer=mask_renderer)
         marks = point_mark_renderer.get(pixmap_size_px=23)
         # Store
-        self.instances[instance_id] = InstanceInfo(instance=instance, point_marks=marks)
+        self.instances[instance_id] = InstanceInfo(instance=instance, point_marks=marks, main_colour=main_colour, contrast_colour=contrast_colour)
         self.instance_changed.emit(instance_id, CUD.CREATE)
         return instance_id
     # End of def create_instance
@@ -148,16 +154,17 @@ class InstanceController(QObject):
         #
 
         # Colour
-        if colour is not None and colour.isValid() and colour.name() != inst.instance_colour:
+        if colour is not None and colour.isValid() and colour != info.main_colour:
             do_update = True
             do_mark_update = True
-            new_colour = colour.name()
-            contrast = pick_contrast_colour(colour)
+            new_main_colour = colour
+            new_contrast_colour = pick_contrast_colour(colour)
             # Mark and mask
-            self.renderers[instance_id].mark_renderer.set_colors(main=colour, contrast=contrast)
-            self.renderers[instance_id].mask_renderer.set_colors(main=colour, contrast=contrast)
+            self.renderers[instance_id].mark_renderer.set_colors(main=new_main_colour, contrast=new_contrast_colour)
+            self.renderers[instance_id].mask_renderer.set_colors(main=new_main_colour, contrast=new_contrast_colour)
         else:
-            new_colour = inst.instance_colour
+            new_main_colour = info.main_colour
+            new_contrast_colour = info.contrast_colour
         #
 
         
@@ -206,10 +213,12 @@ class InstanceController(QObject):
 
         # --- Update
         if do_update:
-            new_instance = Instance(instance_id=instance_id, instance_name=new_name, instance_colour=new_colour, category_name=new_cat, detections=new_detections)
+            new_instance = Instance(instance_id=instance_id, instance_name=new_name, category_name=new_cat, detections=new_detections)
             new_info = InstanceInfo(
                 instance=new_instance,
                 point_marks=new_marks,
+                main_colour=new_main_colour,
+                contrast_colour=new_contrast_colour,
                 marker_size=new_marker_size,
                 show_markers=new_show_markers,
                 show_mask=new_show_mask,
@@ -241,6 +250,13 @@ class InstanceController(QObject):
     def get_current_instance_id(self) -> InstanceID|None:
         return self.current_instance_id
     # End of def get_current_instance_id
+
+
+    def get_current_instance_info(self) -> InstanceInfo|None:
+        if self.current_instance_id is None:
+            return None
+        return self.instances[self.current_instance_id]
+    # End of def get_current_instance_info
 
 
     def get(self, instance_id:InstanceID) -> InstanceInfo:

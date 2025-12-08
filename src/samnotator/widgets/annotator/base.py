@@ -11,11 +11,12 @@ from samnotator.controllers.instance_controller import InstanceController
 
 class ZValues(IntEnum):
     BACKGROUND = 0
-    MASK = 1
-    BBOX = 2
-    POINTS = 3
-    SELECTED_BBOX = 4
-    SELECTED_POINTS = 5
+    MASK = 10
+    BBOX = 20
+    POINTS = 30
+    SELECTED_BBOX = 40
+    SELECTED_POINTS = 50
+    DRAG_BOX_PREVIEW = 10000
 #
 
 

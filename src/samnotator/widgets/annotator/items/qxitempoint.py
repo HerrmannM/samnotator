@@ -13,7 +13,7 @@ from ..base import AnnotatorSceneProtocol
 
 class QXItemPoint(QGraphicsPixmapItem):
 
-    def __init__(self, pid:PointID, kind:PointKind, iid:InstanceID, pixmap:QPixmap, position:PointXY, parent=None) -> None:
+    def __init__(self, pid:PointID, kind:PointKind, iid:InstanceID, pixmap:QPixmap, position:PointXY, parent:QGraphicsItem|None=None) -> None:
         super().__init__(pixmap, parent)
         self.point_id = pid
         self.instance_id = iid
@@ -26,11 +26,11 @@ class QXItemPoint(QGraphicsPixmapItem):
         # If we have perf issue... we should not with the amount of mark/scene
         #self.setShapeMode(QGraphicsPixmapItem.ShapeMode.BoundingRectShape)
 
-        self.update(pixmap, kind, position)
+        self.set(pixmap, kind, position)
     # End of def __init__
 
 
-    def update(self, pixmap:QPixmap|None, kind:PointKind|None=None, point_xy:PointXY|None=None) -> None:
+    def set(self, pixmap:QPixmap|None, kind:PointKind|None=None, point_xy:PointXY|None=None) -> None:
         if pixmap is not None:
             self.setPixmap(pixmap)
 
@@ -42,7 +42,7 @@ class QXItemPoint(QGraphicsPixmapItem):
             x,y = point_xy
             self.setPos(x+0.5, y+0.5)
             self.setOffset(-center.x(), -center.y())
-    # End of def update
+    # End of def set
 
 
     def itemChange(self, change: QGraphicsItem.GraphicsItemChange, value):
@@ -53,8 +53,8 @@ class QXItemPoint(QGraphicsPixmapItem):
             scene.instance_controller.set_current_instance(self.instance_id)
 
         # 2) Position change: clamp to scene rect and check for collisions
-        if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange and scene is not None:
-            new_pos: QPointF = value
+        elif change == QGraphicsItem.GraphicsItemChange.ItemPositionChange and scene is not None:
+            new_pos = cast(QPointF, value)
             scene_rect: QRectF = scene.sceneRect()
 
             # 1) Clamp to scene rect (keep center inside) and centre on pixel
@@ -90,13 +90,13 @@ class QXItemPoint(QGraphicsPixmapItem):
             y_int = int(final_pos.y())
 
             # commit the move to the controller
-            scene.annotations_controller.update_move_point(self.point_id, PointXY((x_int, y_int)))
+            scene.annotations_controller.update_point_move(self.point_id, PointXY((x_int, y_int)))
     # End of def mouseReleaseEvent
     
     def mouseDoubleClickEvent(self, event):
         super().mouseDoubleClickEvent(event)
         scene = cast(AnnotatorSceneProtocol, self.scene())
-        scene.annotations_controller.update_kind(self.point_id, None) # Toggle kind
+        scene.annotations_controller.update_point_kind(self.point_id, None) # Toggle kind
     # End of def mouseDoubleClickEvent
 # End of class QXItemPoint
 

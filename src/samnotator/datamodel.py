@@ -34,7 +34,6 @@ class InstanceDetection:
 class Instance:
     instance_id:InstanceID
     instance_name:str
-    instance_colour:str
     category_name:str|None
     #
     detections:dict[FrameID, InstanceDetection]
@@ -43,7 +42,6 @@ class Instance:
         return {
             "instance_id": self.instance_id,
             "instance_name": self.instance_name,
-            "instance_colour": self.instance_colour,
             "category_name": self.category_name,
         }
     

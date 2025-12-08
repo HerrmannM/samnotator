@@ -10,6 +10,7 @@ from samnotator.datamodel import InstanceID
 from samnotator.datamodel import PointID
 from ..base import ZValues
 from .qxitempoint import QXItemPoint
+from .bbox import QXItemBox
 
 
 
@@ -42,6 +43,7 @@ class Layer:
     layer_mask:LayerItem
     #
     point_items:dict[PointID, QXItemPoint]
+    bbox_items:dict[int, QXItemBox]
     markers:list[QPixmap]
     mask:QGraphicsPixmapItem|None
     #
@@ -59,7 +61,7 @@ class Layer:
         lm = LayerItem(instance_id)
         lm.setZValue(ZValues.MASK)
         #
-        return cls(instance_id = instance_id, layer_points = lp, layer_bbox = lb, layer_mask = lm, point_items = {}, markers = [], mask = None)
+        return cls(instance_id = instance_id, layer_points = lp, layer_bbox = lb, layer_mask = lm, point_items = {}, bbox_items = {}, markers = [], mask = None)
     # End of classmethod def default
 #
 

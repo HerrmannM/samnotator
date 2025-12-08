@@ -145,6 +145,7 @@ class InstanceTableModel(QAbstractTableModel):
         # Get instance info
         info:InstanceInfo = self.instance_info_at_row(row)
         instance:Instance = info.instance
+        main_colour = info.main_colour
 
         # Per column/role data
         match col:
@@ -170,7 +171,7 @@ class InstanceTableModel(QAbstractTableModel):
 
             case Columns.COLOR:
                 if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
-                    return QColor(instance.instance_colour)
+                    return QColor(main_colour)
                 return None
             #
 

@@ -9,51 +9,59 @@ import numpy as np
 # Project
 
 
-# --- --- --- Input Task DataClasses --- --- ---
 
-@dataclass(frozen=True, slots=True)
-class ClickPrompt:
-    """ 
-    One user click in image pixel coordinates.  (0, 0) is top-left corner of the image.
-    `instance_id` groups clicks that refer to the same object instance.
-    """
-    x: int                      # pixel coordinate from left
-    y: int                      # pixel coordinate from top
-    is_positive: bool           # True = positive click, False = negative
-    instance_id: int            # integer object identifier (0, 1, 2, ...)
-# End of class ClickPrompt
-
-
+# --- --- --- Mask Output Options --- --- ---
 @dataclass(frozen=True, slots=True)
 class MaskOutputOptions:
-    """
-    Options controlling how masks are produced/filtered.
-    All are optional at call-site, but you must pass explicit values
-    (no dataclass defaults).
-    """
+    """ Options controlling how masks are produced/filtered.  """
     multimask_output: bool              # HF model multimask_output flag
     mask_threshold: float | None        # probability threshold for bbox computation
     max_masks_per_object: int | None    # slice top-k masks per object
 # End of class MaskOutputOptions
 
 
+
+# --- --- --- PVS --- --- ---
+# Promptable Visual Segmentation (PVS)
+# "Classic" SAM2/SAM3 worflow with positive/negative clicks and optional box
 @dataclass(frozen=True, slots=True)
-class ClickSegmentationTask:
-    """
-    Promptable segmentation with user clicks (multi-object).
+class PVSPointPrompt:
+    """Positive or negative point in image pixel coordinates from top left corner (0,0)."""
+    x: int                      # pixel coordinate from left
+    y: int                      # pixel coordinate from top
+    is_positive: bool           # True = positive click, False = negative
+# End of class PVSPointPrompt
 
-    - Each ClickPrompt has an object_id; all clicks with the same object_id
-      define one object instance.
-    - Supports both positive and negative clicks per object.
-    """
-    prompts: list[ClickPrompt]
+
+@dataclass(frozen=True, slots=True)
+class PVSBoxPrompt:
+    """Bounding box (assumed positive) in image pixel coordinates from top left corner (0,0)."""
+    x_min: int
+    y_min: int
+    x_max: int
+    y_max: int
+# End of class PVSBoxPrompt
+
+
+@dataclass(frozen=True, slots=True)
+class PVSInstancePrompt:
+    """ Prompt for one object instance in Promptable Visual Segmentation (PVS). """
+    instance_id: int                    # integer object identifier (0, 1, 2, ...)
+    points: list[PVSPointPrompt]        # zero or more point prompts
+    box: PVSBoxPrompt | None            # at most one box per instance
+# End of class PVSInstancePrompt
+
+
+
+@dataclass(frozen=True, slots=True)
+class PVSTask:
+    """ Promptable Visual Segmentation Task, SAM2/SAM3 tracker style. """
+    instances: list[PVSInstancePrompt]
     output_options: MaskOutputOptions
-# End of class ClickSegmentationTask
+# End of class PVSTask
 
 
-
-
-type Task = ClickSegmentationTask
+type Task = PVSTask
 
 
 @dataclass(frozen=True, slots=True)

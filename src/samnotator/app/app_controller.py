@@ -166,7 +166,6 @@ class AppController(QObject):
 
             det = InstanceDetection( frame_id=frame_id, top_left=top_left, bottom_right=bottom_right, mask=mask_hw)
             detections_by_instance[instance_id][frame_id] = det
-            print("AppController.on_inference_result: added detection for instance", instance_id, "on frame", frame_id)
         # 
 
         for instance_id, detections in detections_by_instance.items():
@@ -195,7 +194,7 @@ class AppController(QObject):
         # Save annotations
         point_annotation_data:dict[FrameID, list[dict]] = {}
         for frame_id in frame_data.keys():
-            point_annotations = self.ctl_annotations.get_frame_points(frame_id)
+            point_annotations = self.ctl_annotations.get_points_for_frame(frame_id)
             point_annotation_data[frame_id] = [pa.to_dict() for pa in point_annotations]
         data_to_save["point_annotations"] = point_annotation_data
 

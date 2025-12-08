@@ -1,6 +1,7 @@
 """Model selection + inference widget"""
 # --- --- --- Imports --- --- ---
 # STD
+from collections import defaultdict
 from pathlib import Path
 # 3RD
 from PySide6.QtCore import Signal, Slot
@@ -8,7 +9,7 @@ from PySide6.QtWidgets import QWidget, QComboBox, QVBoxLayout, QHBoxLayout, QPus
 # Project
 from samnotator.app.app_controller import AppController
 from samnotator.datamodel import FrameID, PointKind, InstanceID
-from samnotator.models.interface import InferenceInput, ClickPrompt, MaskOutputOptions, ClickSegmentationTask, Task
+from samnotator.models.interface import InferenceInput, MaskOutputOptions, PVSBoxPrompt, PVSInstancePrompt, PVSPointPrompt, PVSTask, Task
 from samnotator.controllers.model_controller import InferenceRequest, InferenceResult
 
 
@@ -200,42 +201,60 @@ class ModelRunnerWidget(QWidget):
     # End of def _make_request_id
 
 
-    def _build_inference_request(self, request_id: str, frame_id: FrameID) -> InferenceRequest|str:
+    def _build_inference_request(self, request_id: str, frame_id: FrameID) -> InferenceRequest | str:
         # Image path for this frame
-        if (image_path:= self.ctl_frames.get_frame_path(frame_id)) is None:
-            raise RuntimeError("Frame controller returned no image path for requested frame") # Controller error
+        if (image_path := self.ctl_frames.get_frame_path(frame_id)) is None:
+            raise RuntimeError("Frame controller returned no image path for requested frame")
 
-        # Record all point annotations on this frame
-        imap:dict[int, InstanceID] = {}
+        # --- collect point prompts per instance ---
+        points_by_inst: dict[InstanceID, list[PVSPointPrompt]] = defaultdict(list)
+        for pa in self.ctl_annotations.get_points_for_frame(frame_id): 
+            x, y = pa.point.position
+            is_positive = (pa.point.kind == PointKind.POSITIVE)
+            inst_id: InstanceID = pa.instance_id
+            points_by_inst[inst_id].append(PVSPointPrompt(x=x, y=y, is_positive=is_positive))
+        # End for pa in ...
 
+        # --- collect at-most-one box per instance ---
+        boxes_by_inst: dict[InstanceID, PVSBoxPrompt] = {}
+        for ba in self.ctl_annotations.get_bboxes_for_frame(frame_id):
+            inst_id: InstanceID = ba.instance_id
+            if inst_id in boxes_by_inst:
+                raise ValueError(
+                    f"More than one bbox for instance {int(inst_id)} on frame {int(frame_id)} "
+                    "(SAM2/SAM3 PVS expects at most one box per instance)."
+                )
 
-        if annotations := self.ctl_annotations.get_frame_points(frame_id):
-            click_prompts: list[ClickPrompt] = []
-            for pa in annotations:
-                x, y = pa.point.position
-                is_positive = (pa.point.kind == PointKind.POSITIVE)
-                object_id = int(pa.instance_id)  # InstanceID is NewType(int, ...), so just reuse here, but could be different
-                clp = ClickPrompt(x=x, y=y, is_positive=is_positive, instance_id=object_id)
-                click_prompts.append(clp)
-                imap[object_id] = pa.instance_id
-            #
-            # For now, simple default output options # TODO: make configurable in UI
-            output_options = MaskOutputOptions(multimask_output=False, mask_threshold=None, max_masks_per_object=None)
-            # Create task
-            task: Task = ClickSegmentationTask( prompts=click_prompts, output_options=output_options)
-        else:
-            return "No clicks on this frame"
+            if ba.bbox.kind == PointKind.POSITIVE:
+                x_min, y_min = ba.bbox.top_left
+                x_max, y_max = ba.bbox.bottom_right
+                boxes_by_inst[inst_id] = PVSBoxPrompt(x_min=x_min, y_min=y_min, x_max=x_max, y_max=y_max)
+        # End for ba in ...
 
-        print("Inference request built with", len(click_prompts), "clicks on frame", frame_id)
+        # --- combine into PVS instance prompts ---
+        instances: list[PVSInstancePrompt] = []
+        imap: dict[int, InstanceID] = {}            # Also create the mapping  numeric_id -> InstanceID
+        all_inst_ids: set[InstanceID] = set(points_by_inst.keys()) | set(boxes_by_inst.keys())
+        if not all_inst_ids:
+            return "No clicks or bounding boxes on this frame"
+
+        # Sort instances by 'str' id for stable ordering
+        for numeric_id, inst_id in enumerate(sorted(all_inst_ids, key=str)):
+            imap[numeric_id] = inst_id
+            instances.append(PVSInstancePrompt(instance_id=numeric_id, points=points_by_inst.get(inst_id, []), box=boxes_by_inst.get(inst_id)))
+
+        # --- build Task -> InferenceInput -> InferenceRequest ---
+        # For now, simple default output options (TODO: make configurable in UI)
+        output_options = MaskOutputOptions(multimask_output=False, mask_threshold=None, max_masks_per_object=None)
+        task: Task = PVSTask(instances=instances, output_options=output_options)
+
+        print( "Inference request built with", sum(len(p.points) for p in instances), "points and", sum(1 for p in instances if p.box is not None), "bboxes on frame", frame_id,)
         print("  image path:", image_path)
         print("  instance mapping:", imap)
-        print("  clicks: ", len(click_prompts))
-        for c in click_prompts:
-            print("    ", c)
 
-        input = InferenceInput(image_path=image_path, task=task)
-        return InferenceRequest(request_id=request_id, frame_id=frame_id, instance_mapping=imap, input_data=input)
-    # End of def _build_inference_input
+        input_data = InferenceInput(image_path=image_path, task=task)
+        return InferenceRequest(request_id=request_id, frame_id=frame_id, instance_mapping=imap, input_data=input_data)
+    # End of def _build_inference_request
 
 
     # --- --- --- Public helpers --- --- ---
