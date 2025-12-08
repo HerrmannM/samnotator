@@ -56,31 +56,61 @@ class QXItemRect(QGraphicsRectItem):
 
     # --- --- --- Custom painting --- --- ---
 
+
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: QWidget | None = None) -> None:
-        # Pen
-        pen = QPen(self.contrast_colour)
-        pen.setCosmetic(True)
+        
+        # --- Common Setup ---
+        
+        # 1. Define the contrast pen
+        contrast_pen = QPen(self.contrast_colour)
+        contrast_pen.setCosmetic(True)
 
-        if self.isSelected():
-            pen.setWidth(1)
-        else:
-            pen.setWidth(2)
+        # 2. Define the main color pen
+        main_pen = QPen(self.main_colour)
+        main_pen.setCosmetic(True)
 
-        # Brush style depending on kind
-        fill_color = QColor(self.main_colour)
+        # 3. Determine base width based on selection
+        base_width = 1 if self.isSelected() else 2
+
+
         if self.kind == PointKind.POSITIVE:
-            fill_color.setAlpha(128)
-            style = Qt.BrushStyle.SolidPattern
-        else:
-            fill_color.setAlpha(255)
-            style = Qt.BrushStyle.DiagCrossPattern
-        brush = QBrush(fill_color, style)
+            # --- POSITIVE KIND: Outline only (Contrast + Color edge) ---
+            # Draw the first (outer/thicker) edge in contrast color
+            # Width = 2*base_width ensures the contrast edge is thicker than the color edge
+            contrast_pen.setWidth(2 * base_width) 
+            painter.setPen(contrast_pen)
+            
+            # Set brush to NoBrush for no fill
+            painter.setBrush(Qt.BrushStyle.NoBrush) 
+            painter.drawRect(self.rect())
+            
+            # Draw the second (inner/thinner) edge in main color
+            main_pen.setWidth(base_width)
+            painter.setPen(main_pen)
 
-        # Draw
-        painter.setPen(pen)
-        painter.setBrush(brush)
-        painter.drawRect(self.rect())
+            # Drawing again automatically overlays the previous path
+            painter.drawRect(self.rect())
+
+        else:
+            # --- NON-POSITIVE KIND: Filled (Original Logic) ---
+            
+            # Set the single contrast pen width
+            contrast_pen.setWidth(base_width)
+
+            # Brush style depending on kind
+            fill_color = QColor(self.main_colour)
+            fill_color.setAlpha(255) # Assume non-positive is the original opacity
+            style = Qt.BrushStyle.DiagCrossPattern # From original logic
+            brush = QBrush(fill_color, style)
+
+            # Draw with the single pen and fill
+            painter.setPen(contrast_pen)
+            painter.setBrush(brush)
+            painter.drawRect(self.rect())
+            
     # End of def paint
+    
+
 # End of class QXItemRect
 
 
