@@ -1,5 +1,6 @@
 # --- --- --- Imports --- --- ---
 # STD
+from collections import defaultdict
 from dataclasses import replace
 # 3RD
 from PySide6.QtCore import QObject, Signal, Slot
@@ -290,9 +291,14 @@ class AnnotationsController(QObject):
     # End of def delete_frame
 
 
-    def get_frames_with_annotations(self) -> list[FrameID]:
-        """Return list of frame IDs that have at least one annotation (point or bbox)."""
-        return list(set(self.per_frame.keys()) | set({ba.frame_id for ba in self.bboxes.values()}))
+    def get_frames_with_annotations(self) -> dict[FrameID, set[InstanceID]]:
+        """Return frame IDs that have at least one annotation (point or bbox), and the set of instance IDs for each frame."""
+        result = defaultdict(set)
+        for ba in self.bboxes.values():
+            result[ba.frame_id].add(ba.instance_id)
+        for pa in self.annotations.values():
+            result[pa.frame_id].add(pa.instance_id)
+        return result
     # End of def get_frames_with_annotations
 
 # End of class AnnotationsController

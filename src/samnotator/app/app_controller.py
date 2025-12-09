@@ -14,6 +14,7 @@ from samnotator.controllers.model_controller import ModelController, InferenceRe
 from samnotator.datamodel import FrameID,  InstanceID, Instance, MaskHW, PointID, PointXY, PointKind, Point, PointAnnotation, InstanceDetection
 from samnotator.models.interface import ModelOutput, InferenceOutput
 from samnotator.utils._CUD import CUD
+from samnotator.widgets.instances.instance_renderers import MaskMode
 
 
 
@@ -179,8 +180,13 @@ class AppController(QObject):
         data_to_save: dict[str, Any] = {}
 
         # Only save frames that have annotations
+        annotated_frames:dict[FrameID, set[InstanceID]] = self.ctl_annotations.get_frames_with_annotations()
+        if not annotated_frames:
+            return
+
+        # Frame info
         frame_data: dict[FrameID, str] = {}
-        for frame_id in self.ctl_annotations.get_frames_with_annotations():
+        for frame_id in annotated_frames.keys():
             frame_load = self.ctl_frames.frame_load_info(frame_id)
             frame_data[frame_id] = frame_load
         data_to_save["frames"] = frame_data
@@ -191,17 +197,38 @@ class AppController(QObject):
             instance_data[instance_id] = instance_info.instance.to_dict()
         data_to_save["instances"] = instance_data
 
-        # Save annotations
+        # Save points annotations
         point_annotation_data:dict[FrameID, list[dict]] = {}
-        for frame_id in frame_data.keys():
+        for frame_id in annotated_frames.keys():
             point_annotations = self.ctl_annotations.get_points_for_frame(frame_id)
             point_annotation_data[frame_id] = [pa.to_dict() for pa in point_annotations]
         data_to_save["point_annotations"] = point_annotation_data
+        
+        # Save bounding boxes annotations
+        bounding_box_data:dict[FrameID, list[dict]] = {}
+        for frame_id in annotated_frames.keys():
+            boxes = self.ctl_annotations.get_bboxes_for_frame(frame_id)
+            bounding_box_data[frame_id] = [bb.to_dict() for bb in boxes]
+        data_to_save["bounding_boxes"] = bounding_box_data
 
         # Write to disk as JSON
         data_path = dir_path / "annotations.json"
         import json
         with open(data_path, "w") as f:
             json.dump(data_to_save, f, indent=4)
+
+        # Masks
+        mask_dir = dir_path / "masks"
+        mask_dir.mkdir(exist_ok=True)
+        for frame_id, instances in annotated_frames.items():
+            m = self.ctl_instances.get_mask_for_frame(frame_id)
+            if m is not None:
+                all_mask_path = mask_dir / f"f{frame_id}.png"
+                m.save(str(all_mask_path))
+            #
+            for iid in instances:
+                if (mask := self.ctl_instances.get_mask_for(iid, frame_id, mask_mode=MaskMode.BW)) is not None:
+                    mask_path = mask_dir / f"f{frame_id}_i{iid}.png"
+                    mask.save(str(mask_path))
 
 # End of class AppController

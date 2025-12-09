@@ -3,12 +3,12 @@
 from dataclasses import dataclass
 # 3RD
 from PySide6.QtCore import QObject, Signal
-from PySide6.QtGui import QColor, QPixmap
+from PySide6.QtGui import QColor, QPixmap, QPainter
 # Project
 from samnotator.datamodel import InstanceDetection, InstanceID, Instance, FrameID
 from samnotator.utils import CUD
 from samnotator.utils_qt.colours import pick_contrast_colour
-from samnotator.widgets.instances.instance_renderers import MarkRenderer, MaskRenderer
+from samnotator.widgets.instances.instance_renderers import MarkRenderer, MaskMode, MaskRenderer
 
 
 # --- --- --- Internal helpers --- --- ---
@@ -279,7 +279,7 @@ class InstanceController(QObject):
     # End of def all_categories
     
 
-    def get_mask_for(self, instance_id:InstanceID, frame_id:FrameID, plain_mask:bool) -> QPixmap|None:
+    def get_mask_for(self, instance_id:InstanceID, frame_id:FrameID, mask_mode:MaskMode) -> QPixmap|None:
         renderer = self.renderers.get(instance_id)
         assert renderer is not None, f"Instance ID {instance_id} does not have a renderer."
         instance = self.instances.get(instance_id)
@@ -287,7 +287,26 @@ class InstanceController(QObject):
         detection = instance.instance.detections.get(frame_id)
         if detection is None or detection.mask is None:
             return None
-        #return renderer.mask_renderer.get(detection.mask, "fancy" if not plain_mask else "plain")
-        return renderer.mask_renderer.get(detection.mask, "fancy")
+        return renderer.mask_renderer.get(detection.mask, mask_mode)
     # End of def get_mask_for
+
+
+    def get_mask_for_frame(self, frame_id:FrameID) -> QPixmap|None:
+        """Get masks for all instances for a given frame."""
+        masks:list[QPixmap] = []
+        for instance_id in self.instances.keys():
+            if mask := self.get_mask_for(instance_id, frame_id, mask_mode=MaskMode.SOLID_TRANSPARENT):
+                masks.append(mask)
+                print(f"Got mask for instance {instance_id} on frame {frame_id}")
+        if not masks:
+            return None
+        # Combine masks:
+        bg = QPixmap(masks[0].size())
+        bg.fill(QColor(0,0,0,0))
+        painter = QPainter(bg)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+        for mask in masks: painter.drawPixmap(0,0, mask)
+        painter.end()
+        return bg
+
 # End of class InstanceController

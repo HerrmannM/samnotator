@@ -15,6 +15,7 @@ from samnotator.controllers.instance_controller import InstanceController
 from samnotator.datamodel import FrameID, InstanceID, BBoxID, BBox, BBoxAnnotation
 from samnotator.datamodel import PointAnnotation, PointKind, PointID, PointXY, Point
 from samnotator.utils._CUD import CUD
+from samnotator.widgets.instances.instance_renderers import MaskMode
 from .items.qxitempoint import QXItemPoint
 from .items.bbox import QXItemBox, QXItemRect
 from .items.layer import Layer, LayerItem
@@ -127,7 +128,8 @@ class AnnotatorScene(QGraphicsScene):
                 # - Visbility
                 instance_layer.layer_mask.setVisible(instance.show_mask)
                 # - Update mask: for now, full re update
-                mask = self.instance_controller.get_mask_for(instance_id, self.frame_id, instance.show_plain_mask)
+                mask_mode = MaskMode.PLAIN if instance.show_plain_mask else MaskMode.FANCY
+                mask = self.instance_controller.get_mask_for(instance_id, self.frame_id, mask_mode)
                 if mask is not None:
                     if instance_layer.mask is None: # New mask
                         mask_item = QGraphicsPixmapItem(mask, parent = instance_layer.layer_mask)
