@@ -11,7 +11,7 @@ Samnotator currently only supports simple point annotations.
 
 <p align="center">
   <img src="https://github.com/user-attachments/assets/11e8ee9c-5e6b-47d3-b737-554adbc6ef8d" alt="All masks" width="45%" />
-  <img src="https://github.com/user-attachments/assets/2007b04c-85be-41fc-b63f-d29c38e7888e" alt="Glaces mask" with="45%"/>
+  <img src="https://github.com/user-attachments/assets/2007b04c-85be-41fc-b63f-d29c38e7888e" alt="Glaces mask" width="45%"/>
 </p>
 
 # Run
