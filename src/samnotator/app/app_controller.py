@@ -4,6 +4,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 # 3RD
+import numpy as np
 from PySide6.QtCore import QObject, Signal, SignalInstance, Slot
 from PySide6.QtGui import QColor
 # Project
@@ -133,13 +134,8 @@ class AppController(QObject):
         instance_mapping: dict[int, InstanceID] = req.instance_mapping
 
         # Get mask threshold from task options if present, else default
-        task = req.input_data.task
-        mask_threshold = task.output_options.mask_threshold
-        if mask_threshold is None:
-            mask_threshold = 0.5
-
         boxes = out.boxes              # (N, 4)
-        masks = out.masks              # (N, H, W) float32
+        masks = out.masks              # (N, H, W) bool
         obj_ids = out.instance_object_ids  # (N,)
 
         n = boxes.shape[0]
@@ -160,11 +156,7 @@ class AppController(QObject):
             top_left: PointXY = PointXY((int(x_min), int(y_min)))
             bottom_right: PointXY = PointXY((int(x_max), int(y_max)))
 
-            mask_hw: MaskHW | None = None
-            if masks is not None:
-                # (H, W) bool mask
-                mask_hw = masks[i] >= mask_threshold
-
+            mask_hw: MaskHW = masks[i]
             det = InstanceDetection( frame_id=frame_id, top_left=top_left, bottom_right=bottom_right, mask=mask_hw)
             detections_by_instance[instance_id][frame_id] = det
         # 

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 # 3RD
 import numpy as np
+from numpy.typing import NDArray
 # Project
 
 
@@ -14,9 +15,7 @@ import numpy as np
 @dataclass(frozen=True, slots=True)
 class MaskOutputOptions:
     """ Options controlling how masks are produced/filtered.  """
-    multimask_output: bool              # HF model multimask_output flag
-    mask_threshold: float | None        # probability threshold for bbox computation
-    max_masks_per_object: int | None    # slice top-k masks per object
+    max_masks_per_object: int = 1   # slice top-k masks per object
 # End of class MaskOutputOptions
 
 
@@ -83,17 +82,27 @@ class InferenceInput:
 class InferenceOutput:
     """
     - input:   original InferenceInput used for this inference
-    - masks:   (N, H, W) float32 probabilities in [0, 1]
-    - scores:  (N,)      float32 mask quality scores (e.g. IoU)
-    - boxes:   (N, 4)    float32 [x_min, y_min, x_max, y_max] in pixels
+    - masks:   (N, H, W)    bool masks
+    - scores:  (N,)         float32 mask quality scores (e.g. IoU)
+    - boxes:   (N, 4)       float32 [x_min, y_min, x_max, y_max] in pixels
     - instance_object_ids: (N,) int32 mapping each mask to its object_id
     - meta:    free-form metadata
     """
-    masks: np.ndarray
-    scores: np.ndarray
-    boxes: np.ndarray
-    instance_object_ids: np.ndarray
-    meta: dict[str, Any]
+    masks: NDArray[np.bool]
+    scores: NDArray[np.float32]
+    boxes: NDArray[np.int32]
+    instance_object_ids: NDArray[np.int32]
+    meta : dict[str, Any]
+
+    @classmethod
+    def empty(cls, meta: dict[str, Any]) -> InferenceOutput:
+        return InferenceOutput(
+            masks=np.zeros((0, 0, 0), dtype=bool),
+            scores=np.zeros((0,), dtype=np.float32),
+            boxes=np.zeros((0, 4), dtype=np.int32),
+            instance_object_ids=np.zeros((0,), dtype=np.int32),
+            meta=meta
+        )
 # End of class InferenceOutput
 
 

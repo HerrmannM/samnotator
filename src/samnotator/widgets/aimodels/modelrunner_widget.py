@@ -245,7 +245,7 @@ class ModelRunnerWidget(QWidget):
 
         # --- build Task -> InferenceInput -> InferenceRequest ---
         # For now, simple default output options (TODO: make configurable in UI)
-        output_options = MaskOutputOptions(multimask_output=False, mask_threshold=None, max_masks_per_object=None)
+        output_options = MaskOutputOptions()
         task: Task = PVSTask(instances=instances, output_options=output_options)
 
         print( "Inference request built with", sum(len(p.points) for p in instances), "points and", sum(1 for p in instances if p.box is not None), "bboxes on frame", frame_id,)

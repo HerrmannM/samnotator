@@ -1,16 +1,20 @@
 # --- --- --- Imports --- --- ---
 # STD
-from collections import defaultdict
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
+import logging
 # 3RD
 import numpy as np
+from numpy.typing import NDArray
 from PIL import Image
 import torch
 from transformers import Sam3TrackerModel, Sam3TrackerProcessor
+from transformers.models.sam3_tracker.modeling_sam3_tracker import Sam3TrackerImageSegmentationOutput
+#frtransformers.models.sam3_tracker.modeling_sam3_tracker.Sam3TrackerImageSegmentationOutput
 # Project
-from .interface import ModelInterface, ModelOutput, PVSTask, InferenceInput, InferenceOutput
+from .interface import MaskOutputOptions, ModelInterface, ModelOutput, PVSTask, InferenceInput, InferenceOutput
 
+logger = logging.getLogger(__name__)
 
 class Sam3TrackerImplementation(ModelInterface):
     """
@@ -111,7 +115,7 @@ class Sam3TrackerImplementation(ModelInterface):
 
         instances = task.instances
         if not instances:
-            return self._default_output(width, height, extra_meta)
+            return InferenceOutput.empty(meta={"message": "No instances provided in task"})
 
         # 1. Bucket the instances
         instances_with_box = []
@@ -138,7 +142,7 @@ class Sam3TrackerImplementation(ModelInterface):
 
         # 3. Merge Results
         if not results_list:
-             return self._default_output(width, height, {"message": "No valid instances found"})
+             return InferenceOutput.empty(meta={"message": "No valid instances found"})
         
         # Concatenate all numpy arrays
         total_masks = np.concatenate([r.masks for r in results_list], axis=0)
@@ -150,15 +154,15 @@ class Sam3TrackerImplementation(ModelInterface):
     # End of def _run_pvs_task
 
 
-    def _run_single_batch(self, pil_image: Image.Image, instances: list, use_boxes: bool, task_options: Any) -> InferenceOutput:
+    def _run_single_batch(self, pil_image: Image.Image, instances: list, use_boxes: bool, task_options: MaskOutputOptions) -> InferenceOutput:
         """ Helper to run one specific batch configuration.  """
         assert self._model is not None
         assert self._processor is not None
         assert self._device is not None
         # --- Prepare Data Layout ---
-        # input_points: [batch=1, num_objects, num_points_per_object, 2]
-        # input_labels: [batch=1, num_objects, num_points_per_object]
-        # input_boxes:  [batch=1, num_objects, 4] OR None
+        # input_points: (batch=1, num_objects, num_points_per_object, 2)
+        # input_labels: (batch=1, num_objects, num_points_per_object)
+        # input_boxes:  (batch=1, num_objects, 4) OR None
 
         points_per_object = []
         labels_per_object = []
@@ -199,93 +203,80 @@ class Sam3TrackerImplementation(ModelInterface):
         inputs = self._processor( images=pil_image, input_points=input_points, input_labels=input_labels, input_boxes=input_boxes, return_tensors="pt")
         inputs = inputs.to(self._device)
 
+        multimask_flag = task_options.max_masks_per_object > 1
         with torch.no_grad():
-            outputs = self._model( **inputs, multimask_output=task_options.multimask_output)
+            outputs: Sam3TrackerImageSegmentationOutput = self._model(**inputs, multimask_output=multimask_flag)
+
+        # Validate outputs: must have pred_masks
+        if outputs.pred_masks is None:
+            logger.warning("Sam3TrackerImplementation: No pred_masks in model output; returning empty result")
+            return InferenceOutput.empty(meta={"message": "No masks predicted by model"})
+
+        # Must have iou_scores
+        if outputs.iou_scores is None:
+            logger.warning("Sam3TrackerImplementation: No iou_scores in model output; returning empty result")
+            return InferenceOutput.empty(meta={"message": "No scores predicted by model"})
+
 
         # --- Post Processing ---
-        # shapes: outputs.pred_masks is [batch, num_objects, num_masks, H, W] usually
         original_sizes = inputs["original_sizes"]
         
         # Processor handles resizing back to original image size
-        post_masks = self._processor.post_process_masks(outputs.pred_masks.cpu(), original_sizes)
-        
-        # Extract batch 0
-        # masks_np shape: (num_objects, num_masks_per_obj, H, W)
-        masks_np = post_masks[0].numpy() if isinstance(post_masks[0], torch.Tensor) else post_masks[0]
-        
-        # Scores
-        if hasattr(outputs, "iou_scores"):
-            scores_np = outputs.iou_scores.detach().cpu().numpy()[0] # [num_obj, num_masks]
-        else:
-            # Fallback
-            n_obj, n_mask = masks_np.shape[:2]
-            scores_np = np.zeros((n_obj, n_mask), dtype=np.float32)
-
-        # --- Flattening & Filtering ---
-        # We need to flatten [Num_Objects, Num_Masks, H, W] -> [Total_Masks, H, W]
-        # And replicate IDs accordingly.
-        
+        # shapes: (batch, num_objects, num_masks, H, W) -> extract batch=0 -> (num_objects, num_masks_per_obj, H, W)
+        post_masks = cast(NDArray[np.bool], self._processor.post_process_masks(outputs.pred_masks.cpu(), original_sizes))
+        masks_np: NDArray[np.bool] = post_masks[0].numpy() if isinstance(post_masks[0], torch.Tensor) else post_masks[0] # (num_objects, num_masks, H, W)
+        scores_np: NDArray[np.float32] = outputs.iou_scores.detach().cpu().numpy()[0].astype(np.float32) # (num_obj, num_masks)
         num_objects, num_masks, H, W = masks_np.shape
-        
-        # 1. Handle Top-K filtering per object
+
+        # 1. Sort masks per object by descending score
+        # sort_idx[i] is a permutation [0..num_masks-1] for object i
+        sort_idx = np.argsort(-scores_np, axis=1)  # descending along num_masks
+
+        # Build row indices for indexing (':' along num_masks alone does not work with advanced indexing of sort_idx)
+        obj_idx = np.arange(num_objects)[:, None]  # shape (num_objects, 1)
+
+        # Reorder masks and scores using the same permutation
+        masks_np = masks_np[obj_idx, sort_idx, :, :]   # still (num_objects, num_masks, H, W)
+        scores_np = scores_np[obj_idx, sort_idx]       # still (num_objects, num_masks)
+
+        # 2. Optional Top-K per object (after sorting)
         k = task_options.max_masks_per_object
-        if k is not None and k < num_masks:
-             masks_np = masks_np[:, :k, :, :]
-             scores_np = scores_np[:, :k]
-             num_masks = k
+        if k < num_masks:
+            masks_np = masks_np[:, :k, :, :]          # (num_objects, k, H, W)
+            scores_np = scores_np[:, :k]              # (num_objects, k)
+            num_masks = k                             # now each object has k masks
 
-        # 2. Flatten
-        # Reshape masks to (N_total, H, W)
-        final_masks = masks_np.reshape(-1, H, W)
-        
-        # Reshape scores to (N_total)
-        final_scores = scores_np.reshape(-1)
+        # 3. Flatten: objects × masks_per_object -> total masks (N_total, H, W)
+        N_total = num_objects * num_masks
+        final_masks = masks_np.reshape(N_total, H, W)   # (N_total, H, W)
+        final_scores = scores_np.reshape(N_total)       # (N_total,)
 
-        # 3. Replicate IDs
-        # If we have 2 masks per object, object_id 5 becomes [5, 5]
-        batch_ids_arr = np.array(batch_ids, dtype=np.int32)
-        final_ids = np.repeat(batch_ids_arr, num_masks)
+        # 4. Replicate instance IDs per object (same number of masks per object)
+        batch_ids_arr = np.array(batch_ids, dtype=np.int32)  # (num_objects,)
+        final_ids = np.repeat(batch_ids_arr, num_masks)      # (N_total,)
 
-        # 4. Compute BBoxes from masks (standard helper)
-        final_boxes = self._compute_bboxes_from_masks( final_masks, threshold=(task_options.mask_threshold or 0.5))
+        # 5. Compute boxes from flattened masks
+        final_boxes = self._compute_bboxes_from_masks(final_masks)
 
-        return InferenceOutput(masks=final_masks.astype(np.float32), scores=final_scores.astype(np.float32), boxes=final_boxes, instance_object_ids=final_ids, meta={})
+        return InferenceOutput(masks=final_masks, scores=final_scores, boxes=final_boxes, instance_object_ids=final_ids, meta={})
     # End of def _run_single_batch
 
 
     # --- --- --- Internal helpers --- --- ---
 
-    def _default_output(self, width: int, height: int, meta: dict[str, Any]) -> InferenceOutput:
-        """ No model call; return an empty, but well-formed, result. """
-        masks = np.zeros((0, height, width), dtype=np.float32)
-        scores = np.zeros((0,), dtype=np.float32)
-        boxes = np.zeros((0, 4), dtype=np.float32)
-        instance_object_ids = np.zeros((0,), dtype=np.int32)
-        return InferenceOutput(masks=masks, scores=scores, boxes=boxes, instance_object_ids=instance_object_ids, meta=meta)
-    # End of def _default_output
-
-
     @staticmethod
-    def _compute_bboxes_from_masks(masks: np.ndarray, threshold: float) -> np.ndarray:
+    def _compute_bboxes_from_masks(masks: NDArray[np.bool]) -> NDArray[np.int32]:
         if masks.size == 0:
-            return np.zeros((0, 4), dtype=np.float32)
-
+            return np.zeros((0, 4), dtype=np.int32)
         N, _, _ = masks.shape
-        boxes = np.zeros((N, 4), dtype=np.float32)
-        
-        # Simple boolean conversion
-        bin_masks = masks >= threshold
-
+        boxes = np.zeros((N, 4), dtype=np.int32)
         for i in range(N):
-            ys, xs = np.where(bin_masks[i])
+            ys, xs = np.where(masks[i])
             if xs.size > 0:
                 boxes[i] = [xs.min(), ys.min(), xs.max(), ys.max()]
             # else 0,0,0,0
-
         return boxes
     # End of def _compute_bboxes_from_masks
-    
-    
 # End of class Sam3TrackerImplementation
 
 
