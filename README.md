@@ -4,8 +4,14 @@ A simple enough image anotation application for [SAM](https://github.com/faceboo
 Samnotator currently only supports simple point annotations.
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/91b2a3c9-17f9-4d7f-b7fc-0f7cb230c74d" alt="Samnotator main UI" width="45%">
-  <img src="https://github.com/user-attachments/assets/80e7d1d9-227b-465b-bc45-7bf29605b291" alt="Annotation example" width="45%">
+  <img src="https://github.com/user-attachments/assets/82cde6fd-165c-4578-a14e-f0edd8a883f1" alt="Samnotator main UI" width="45%"/>
+  <img src="https://github.com/user-attachments/assets/66793388-1960-4180-aebd-e461722180fa" alt="Annotation result example" width="45%"/>
+</p>
+
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/11e8ee9c-5e6b-47d3-b737-554adbc6ef8d" alt="All masks" width="45%" />
+  <img src="https://github.com/user-attachments/assets/2007b04c-85be-41fc-b63f-d29c38e7888e" alt="Glaces mask" with="45%"/>
 </p>
 
 # Run
