@@ -17,6 +17,7 @@ from .app_controller import AppController
 
 MODELS:list[ModelInfo] = [
     ModelInfo(kind=ModelKind.IMAGE, name="SAM3 Image", wrapper_name="sam3_pvs_image", model_path=Path("models/sam3").resolve()),
+    ModelInfo(kind=ModelKind.VIDEO, name="SAM3 Video", wrapper_name="sam3_pvs_video", model_path=Path("models/sam3").resolve()),
 ]
         
 class AppWidget(QWidget):

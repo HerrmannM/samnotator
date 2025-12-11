@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QWidget, QComboBox, QVBoxLayout, QHBoxLayout, QPus
 # Project
 from samnotator.app.app_controller import AppController
 from samnotator.datamodel import FrameID, PointKind, InstanceID
-from samnotator.models.interface import InferenceInput, MaskOutputOptions, PVSBoxPrompt, PVSInstancePrompt, PVSPointPrompt, PVSFramePrompt, PVSTask, TaskType
+from samnotator.models.interface import InferenceInput, MaskOutputOptions, PVSBoxPrompt, PVSInstancePrompt, PVSPointPrompt, PVSFramePrompt, PVSTask, PVSVideoOption, TaskType
 from samnotator.controllers.model_controller import InferenceRequest, InferenceResult
 
 
@@ -207,17 +207,32 @@ class ModelRunnerWidget(QWidget):
             self._log("No model selected")
             return
 
-        frame_id = self.ctl_frames.get_current_frame_id()
-        if frame_id is None:
+        current_frame_id = self.ctl_frames.get_current_frame_id()
+        if current_frame_id is None:
             self._log("No frame")
             return
 
-        try:
-            request_id = self._make_request_id(model_info.name)
-            request = self._build_image_inference_request(request_id, frame_id)
-        except Exception as e:
-            self._log(f"ModelRunnerWidget: failed to build InferenceInput: {e!r}")
-            return
+
+        match model_info.kind:
+            case ModelKind.IMAGE:
+                try:
+                    request_id = self._make_request_id(model_info.name)
+                    request = self._build_image_inference_request(request_id, current_frame_id)
+                except Exception as e:
+                    self._log(f"ModelRunnerWidget: failed to build InferenceInput for image: {e!r}")
+                    return
+            case ModelKind.VIDEO:
+                try:
+                    all_frames= self.ctl_frames.get_all_frame_ids()
+                    request_id = self._make_request_id(model_info.name)
+                    request = self._build_video_inference_request(request_id, all_frames)
+                except Exception as e:
+                    self._log(f"ModelRunnerWidget: failed to build InferenceInput for video: {e!r}")
+                    return
+            case _:
+                self._log(f"ModelRunnerWidget: unsupported model kind: {model_info.kind}")
+                return
+
 
         if isinstance(request, str):
             self._log(request)
@@ -309,6 +324,110 @@ class ModelRunnerWidget(QWidget):
     # End of def _build_image_inference_request
 
 
+    def _build_video_inference_request(self, request_id: str, frames:list[FrameID], video_options: PVSVideoOption | None = None) -> InferenceRequest | str:
+        """
+        Build an InferenceRequest for video PVS.
+
+        - `frames` is the ordered list of FrameID that defines the video timeline.
+        - `video_options` controls start_frame_index / max_frames / reverse for propagation.
+        """
+        if not frames:
+            return "No frames provided for video inference"
+
+        # 1) Resolve frame paths and build frame_index -> FrameID mapping
+        frame_paths: list[Path] = []
+        frame_mapping: dict[int, FrameID] = {}
+
+        for idx, frame_id in enumerate(frames):
+            image_path = self.ctl_frames.get_frame_path(frame_id)
+            if image_path is None:
+                raise RuntimeError(f"Frame controller returned no image path for frame {int(frame_id)}")
+            frame_paths.append(image_path)
+            frame_mapping[idx] = frame_id
+
+        # 2) First pass: collect all instance IDs across all frames
+        all_instance_ids: set[InstanceID] = set()
+
+        for frame_id in frames:
+            # points
+            for pa in self.ctl_annotations.get_points_for_frame(frame_id):
+                all_instance_ids.add(pa.instance_id)
+            # boxes (only positive ones)
+            for ba in self.ctl_annotations.get_bboxes_for_frame(frame_id):
+                if ba.bbox.kind == PointKind.POSITIVE:
+                    all_instance_ids.add(ba.instance_id)
+
+        if not all_instance_ids:
+            return "No clicks or bounding boxes on any of the selected frames"
+
+        # 3) Build global numeric instance IDs (stable ordering)
+        instance_mapping: dict[int, InstanceID] = {}             # numeric_id -> InstanceID
+        instance_id_to_numeric: dict[InstanceID, int] = {}       # InstanceID -> numeric_id
+
+        for numeric_id, inst_id in enumerate(sorted(all_instance_ids, key=str)):
+            instance_mapping[numeric_id] = inst_id
+            instance_id_to_numeric[inst_id] = numeric_id
+
+        # 4) For each frame, collect prompts per instance and build PVSFramePrompt
+        frame_prompts: list[PVSFramePrompt] = []
+
+        for frame_index, frame_id in enumerate(frames):
+            # --- collect point prompts per InstanceID on this frame ---
+            points_by_inst: dict[InstanceID, list[PVSPointPrompt]] = defaultdict(list)
+            for pa in self.ctl_annotations.get_points_for_frame(frame_id):
+                x, y = pa.point.position
+                is_positive = (pa.point.kind == PointKind.POSITIVE)
+                inst_id: InstanceID = pa.instance_id
+                points_by_inst[inst_id].append(
+                    PVSPointPrompt(x=x, y=y, is_positive=is_positive)
+                )
+
+            # --- collect at-most-one positive box per InstanceID on this frame ---
+            boxes_by_inst: dict[InstanceID, PVSBoxPrompt] = {}
+            for ba in self.ctl_annotations.get_bboxes_for_frame(frame_id):
+                inst_id: InstanceID = ba.instance_id
+                if ba.bbox.kind == PointKind.POSITIVE:
+                    if inst_id in boxes_by_inst:
+                        raise ValueError(f"More than one bbox for instance {int(inst_id)} on frame {int(frame_id)} (PVS expects at most one box per instance, per frame).")
+                    x_min, y_min = ba.bbox.top_left
+                    x_max, y_max = ba.bbox.bottom_right
+                    boxes_by_inst[inst_id] = PVSBoxPrompt(x_min=x_min, y_min=y_min, x_max=x_max, y_max=y_max)
+                else:
+                    self._log(f"Warning: ignoring negative bbox for instance {int(inst_id)} on frame {int(frame_id)}")
+
+            # --- combine into PVSInstancePrompt for this frame ---
+            inst_ids_for_frame = set(points_by_inst.keys()) | set(boxes_by_inst.keys())
+            if not inst_ids_for_frame: # No prompts on this frame -> skip it entirely
+                continue
+
+            frame_instances: list[PVSInstancePrompt] = []
+            for inst_id in sorted(inst_ids_for_frame, key=str):
+                numeric_id = instance_id_to_numeric[inst_id]
+                frame_instances.append(PVSInstancePrompt(instance_id=numeric_id, points=points_by_inst.get(inst_id, []), box=boxes_by_inst.get(inst_id)))
+
+            frame_prompts.append(PVSFramePrompt(frame_index=frame_index, instances=frame_instances))
+        # End of for frame_index, frame_id in ...
+
+        if not frame_prompts:
+            return "No valid prompts found on any of the selected frames"
+
+        # 5) Build PVSTask (video mode) and InferenceInput
+        output_options = MaskOutputOptions()
+        vo = video_options or PVSVideoOption()  # default options if none provided
+
+        task = PVSTask( frame_prompts=frame_prompts, video_options=vo, output_options=output_options)
+
+        print( "Video inference request built with", len(frame_prompts), "frame prompts across", len(frames), "frames")
+        print("  frame_paths:", frame_paths)
+        print("  instance mapping:", instance_mapping)
+
+        input_data = InferenceInput(task_type=TaskType.PVS, task=task, frame_paths=frame_paths)
+
+        return InferenceRequest(request_id=request_id, frame_mapping=frame_mapping, instance_mapping=instance_mapping, input_data=input_data)
+    # End of def _build_video_inference_request
+
+
+
     # --- --- --- Public helpers --- --- ---
 
     def get_selected_model(self) -> ModelInfo | None:
@@ -326,6 +445,7 @@ class ModelRunnerWidget(QWidget):
         self._model_paths = model_paths
         self._rebuild_model_list()
     # End of def set_model_selection
+
 
     def is_model_loaded(self) -> bool:
         return self._model_loaded

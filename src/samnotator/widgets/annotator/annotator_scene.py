@@ -22,6 +22,9 @@ from .items.layer import Layer, LayerItem
 from .base import ZValues, AnnotatorSceneProtocol
 
 
+
+# Note: annotator scene and items should be rework to ensure a better initialisation process, e.g. avoid controller call for the onchange slots in item.
+
 class AnnotatorScene(QGraphicsScene):
 
     # --- --- --- Init --- --- ---
@@ -47,7 +50,7 @@ class AnnotatorScene(QGraphicsScene):
         self._drag_box_preview: QXItemRect | None = None
         self._selected_items_on_press: set[QGraphicsItem]|None = None
         
-        #
+        # Layers per instance
         self.instance_layers:dict[InstanceID, Layer] = {}
 
         # Setup
@@ -62,6 +65,14 @@ class AnnotatorScene(QGraphicsScene):
         self.annotations_controller.bbox_list_changed.connect(self.on_bbox_list_changed)
         self.instance_controller.instance_changed.connect(self.on_instance_changed)
         self.instance_controller.current_instance_changed.connect(self.on_current_instance_changed)
+        # Init layers/items
+        for instance_id in self.instance_controller.all_instance_ids():
+            self.on_instance_changed(instance_id, CUD.CREATE)
+            self.on_instance_changed(instance_id, CUD.UPDATE)  # To set visibility/marks
+        for pa in self.annotations_controller.get_points_for_frame(self.frame_id):
+            self.add_point_annotation(pa)
+        for ba in self.annotations_controller.get_bboxes_for_frame(self.frame_id):
+            self.add_bbox_annotation(ba)
     # End of def _init_ui
 
     
@@ -221,7 +232,6 @@ class AnnotatorScene(QGraphicsScene):
         box_item = QXItemBox(box_id=bid, kind=bbox.kind, instance_info=instance_info, bbox=rect, parent=layer.layer_bbox)
         layer.bbox_items[bid] = box_item
     # End of def add_bbox_annotation
-
 
     
     def update_bbox_annotation(self, ba:BBoxAnnotation) -> None:

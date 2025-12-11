@@ -185,6 +185,12 @@ class FrameController(QObject):
         return self.frame_sequence[self.current_frame_index]
     # End of def get_current_frame_id
 
+    
+    def get_all_frame_ids(self) -> list[FrameID]:
+        """ Return a list of all loaded frame IDs. No signal emitted."""
+        return list(self.frame_sequence)
+    # End of def get_all_frame_ids
+
 
     def get_frame_data(self, frame_id:FrameID) -> QImage:
         """ Load and return the image data for the given frame ID, or None if not found. No signal emitted."""
