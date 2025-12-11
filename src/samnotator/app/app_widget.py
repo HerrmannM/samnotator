@@ -9,9 +9,15 @@ from PySide6.QtCore import Qt, Signal, Slot
 # Project
 from samnotator.widgets.annotator.annotator_widget import AnnotatorWidget, ZoomSelector
 from samnotator.widgets.instances.instance_widget import InstanceWidget
-from samnotator.widgets.aimodels.modelrunner_widget import ModelRunnerWidget
+from samnotator.widgets.aimodels.modelrunner_widget import ModelRunnerWidget, ModelKind, ModelInfo
 from .app_controller import AppController
 
+
+# --- --- --- Model Paths --- --- ---
+
+MODELS:list[ModelInfo] = [
+    ModelInfo(kind=ModelKind.IMAGE, name="SAM3 Image", wrapper_name="sam3_pvs_image", model_path=Path("models/sam3").resolve()),
+]
         
 class AppWidget(QWidget):
 
@@ -23,7 +29,7 @@ class AppWidget(QWidget):
         # Components
         self.annotator: AnnotatorWidget = AnnotatorWidget(controller, parent=self)
         self.instance_widget: InstanceWidget = InstanceWidget(controller.ctl_instances, parent=self)
-        self.runner_widget: ModelRunnerWidget = ModelRunnerWidget( app_controller=controller, model_paths={"sam3": Path("models/sam3").resolve()}, parent=self,)
+        self.runner_widget: ModelRunnerWidget = ModelRunnerWidget(app_controller=controller, models=MODELS.copy(), parent=self,)
         self.zoom_selector: ZoomSelector = ZoomSelector(parent=self)
         # Init
         self._init_ui()

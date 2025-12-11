@@ -1,6 +1,7 @@
 # --- --- --- Imports --- --- ---
 # STD
 from collections import defaultdict
+import logging
 from pathlib import Path
 from typing import Any
 # 3RD
@@ -17,7 +18,11 @@ from samnotator.models.interface import ModelOutput, InferenceOutput
 from samnotator.utils._CUD import CUD
 from samnotator.widgets.instances.instance_renderers import MaskMode
 
+# --- --- --- logger --- --- ---
+logger = logging.getLogger(__name__)
 
+
+# --- --- --- App Controller --- --- ---
 
 class AppController(QObject):
 
@@ -121,51 +126,59 @@ class AppController(QObject):
 
 
     @Slot(InferenceResult)
-    def on_inference_result(self, inf_result:InferenceResult):
+    def on_inference_result(self, inf_result: InferenceResult) -> None:
         req = inf_result.request
         model_out = inf_result.result
 
         # Bail out on error
         if not model_out.ok or model_out.data is None:
+            logger.error(f"Inference result error: {model_out.error}")
             return
 
         out: InferenceOutput = model_out.data
-        frame_id: FrameID = req.frame_id
+        frame_mapping: dict[int, FrameID] = req.frame_mapping
         instance_mapping: dict[int, InstanceID] = req.instance_mapping
 
-        # Get mask threshold from task options if present, else default
-        boxes = out.boxes              # (N, 4)
-        masks = out.masks              # (N, H, W) bool
-        obj_ids = out.instance_object_ids  # (N,)
-
-        n = boxes.shape[0]
-
+        # detections_by_instance[InstanceID][FrameID] = InstanceDetection
         detections_by_instance: dict[InstanceID, dict[FrameID, InstanceDetection]] = defaultdict(dict)
 
-        for i in range(n):
-            obj_id_int = int(obj_ids[i])
+        # Iterate over all frame outputs (image: usually just frame_index==0)
+        for frame_index, frame_out in out.frame_index_results.items():
+            # Map frame_index -> original FrameID
+            frame_id = frame_mapping.get(frame_index)
 
-            # Map model object_id -> actual InstanceID
-            instance_id = instance_mapping.get(obj_id_int)
-            if instance_id is None:
-                # No mapping for this object, skip
+            if frame_id is None: # No mapping: skip this frame (should not normally happen)
+                logger.error(f"No FrameID mapping for frame_index={frame_index} in inference result")
                 continue
 
-            x_min, y_min, x_max, y_max = boxes[i]
+            boxes = frame_out.boxes                 # (N, 4)
+            n = boxes.shape[0]
+            masks = frame_out.masks                 # (N, H, W) bool
+            obj_ids = frame_out.instance_ids        # (N,)
 
-            top_left: PointXY = PointXY((int(x_min), int(y_min)))
-            bottom_right: PointXY = PointXY((int(x_max), int(y_max)))
+            for i in range(n):
+                # Map model object_id -> actual InstanceID
+                obj_id_int = int(obj_ids[i])
+                instance_id = instance_mapping.get(obj_id_int)
 
-            mask_hw: MaskHW = masks[i]
-            det = InstanceDetection( frame_id=frame_id, top_left=top_left, bottom_right=bottom_right, mask=mask_hw)
-            detections_by_instance[instance_id][frame_id] = det
-        # 
+                if instance_id is None: # No mapping for this object, skip: we are not letting the model generate new instances
+                    logger.error(f"No InstanceID mapping for object_id={obj_id_int} in inference result")
+                    continue
 
+                x_min, y_min, x_max, y_max = boxes[i]
+                top_left: PointXY = PointXY((int(x_min), int(y_min)))
+                bottom_right: PointXY = PointXY((int(x_max), int(y_max)))
+                mask_hw: MaskHW = masks[i]
+                det = InstanceDetection(frame_id=frame_id, top_left=top_left, bottom_right=bottom_right, mask=mask_hw)
+                detections_by_instance[instance_id][frame_id] = det
+        # End for each frame_index
+
+        # Push all detections back into the instance controller
         for instance_id, detections in detections_by_instance.items():
             self.ctl_instances.update_instance(instance_id, detections=detections)
     # End of def on_inference_result
 
-    
+
     # --- --- --- Save/Load --- --- ---
     def save_to_folder(self, dir_path:Path) -> None:
         # Create annotations folder

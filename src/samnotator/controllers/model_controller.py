@@ -16,7 +16,7 @@ from samnotator.datamodel import InstanceID, FrameID
 @dataclass(frozen=True, slots=True)
 class InferenceRequest:
     request_id: str                             # unique ID for this inference request
-    frame_id: FrameID                           # original frame ID (for reference)
+    frame_mapping: dict[int, FrameID]           # Mapping from frame index to original frame ID (for reference)
     instance_mapping: dict[int, InstanceID]     # Mapping from trask instance_id as int to actual InstanceID
     input_data: InferenceInput                  # input data for inference
 # End of dataclass InferenceRequest
@@ -103,23 +103,23 @@ class ModelController(QObject):
     # End of def _reset_worker
 
     
-    def _get_builder_for_model_type(self, model_type: str) -> ModelInterfaceBuilder:
+    def _get_wrapper_builder(self, wrapper_name: str) -> ModelInterfaceBuilder:
         """
         Lazily import a model module from the first base package where it exists.
 
         Tries:
-            <base0>.<model_type>
-            <base1>.<model_type>
+            <base0>.<wrapper_name>
+            <base1>.<wrapper_name>
             ...
         and returns its top-level `builder` attribute.
         """
-        if model_type in self._builder_cache:
-            return self._builder_cache[model_type]
+        if wrapper_name in self._builder_cache:
+            return self._builder_cache[wrapper_name]
 
         last_import_error: Exception | None = None
 
         for base_pkg in self._model_base_packages:
-            module_name = f"{base_pkg}.{model_type}"
+            module_name = f"{base_pkg}.{wrapper_name}"
             print(f"ModelController: trying to import model module '{module_name}'")
             try:
                 module = importlib.import_module(module_name)
@@ -138,12 +138,12 @@ class ModelController(QObject):
                 raise TypeError( f"'builder' in module '{module_name}' is not callable")
 
             builder: ModelInterfaceBuilder = builder_obj  # type: ignore[assignment]
-            self._builder_cache[model_type] = builder
+            self._builder_cache[wrapper_name] = builder
             return builder
         #
 
         # If we get here, no module was found in any base package
-        msg = f"Unable to find model module for type '{model_type}'. Tried: {[f'{b}.{model_type}' for b in self._model_base_packages]}"
+        msg = f"Unable to find model module for type '{wrapper_name}'. Tried: {[f'{b}.{wrapper_name}' for b in self._model_base_packages]}"
         if last_import_error is not None:
             msg += f" (last ImportError: {last_import_error!r})"
         raise ValueError(msg)
@@ -169,13 +169,13 @@ class ModelController(QObject):
     
     # --- --- --- Public Methods --- --- ---
 
-    def load_model(self, model_type:str, path: Path, device:str) -> None:
+    def load_model(self, wrapper_name:str, path: Path, device:str) -> None:
         self._reset_worker()
-        builder = self._get_builder_for_model_type(model_type)
+        builder = self._get_wrapper_builder(wrapper_name)
         if (mi := builder(path)) is not None:
             self.request_model_load.emit(mi, device)
         else:
-            raise RuntimeError(f"ModelInterface builder failed for type {model_type} at path {path}")
+            raise RuntimeError(f"ModelInterface builder failed for type {wrapper_name} at path {path}")
     # End of def load_model
 
 

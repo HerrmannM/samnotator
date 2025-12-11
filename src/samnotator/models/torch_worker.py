@@ -62,6 +62,7 @@ def create_torch_worker(parent:QObject) -> tuple[TorchWorker, QThread]:
     thread = QThread(parent=parent)
     worker = TorchWorker()
     worker.moveToThread(thread)
+    thread.finished.connect(worker.unload_model) # Ensure model is unloaded when thread finishes
     thread.finished.connect(worker.deleteLater) 
     thread.start()
     return worker, thread

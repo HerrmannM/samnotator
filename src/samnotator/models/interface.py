@@ -1,9 +1,9 @@
 # --- --- --- Imports --- --- ---
 # STD
+from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol, Callable
-from dataclasses import dataclass
-from pathlib import Path
 # 3RD
 import numpy as np
 from numpy.typing import NDArray
@@ -51,61 +51,83 @@ class PVSInstancePrompt:
 # End of class PVSInstancePrompt
 
 
+@dataclass(frozen=True, slots=True)
+class PVSFramePrompt:
+    """ Prompt for one frame in video PVS (SAM2/SAM3 tracker style). """
+    frame_index: int                    # zero-based frame index in video. Index, not FrameID! Always 0 for image.
+    instances: list[PVSInstancePrompt]  # zero or more instance prompts for this frame
+# End of class PVSFramePrompt
+
+
+@dataclass(frozen=True, slots=True)
+class PVSVideoOption:
+    """ Options specific to video PVS mode. """
+    start_frame_index: int|None = None
+    max_frames: int|None = None
+    reverse: bool = False
+# End of class PVSVideoOption
+
 
 @dataclass(frozen=True, slots=True)
 class PVSTask:
-    """ Promptable Visual Segmentation Task, SAM2/SAM3 tracker style. """
-    instances: list[PVSInstancePrompt]
+    """ Promptable Visual Segmentation Task, SAM2/SAM3 tracker style. Both for images and videos."""
+    frame_prompts: list[PVSFramePrompt]        # one or more frame prompts (for images, just one frame)
+    video_options: PVSVideoOption | None       # video-specific options (None = image PVS)
     output_options: MaskOutputOptions
 # End of class PVSTask
 
 
-type Task = PVSTask
+    
+class TaskType(StrEnum):
+    PVS = "PVSTask"
 
 
 @dataclass(frozen=True, slots=True)
 class InferenceInput:
-    """
-    High-level input for a single inference request.
-    One image path (for data access) + one task
-    """
-    image_path: Path                        # path to local image file (opened as RGB)
-    task: Task                              # exactly one of the three task variants above
+    """High-level input for a single inference request. One or more frames (image or video) + one task."""
+    task_type: TaskType
+    task: PVSTask
+    frame_paths:list[Path]
 # End of class InferenceInput
-
 
 
 # --- --- --- Output type --- --- ---
 
 
 @dataclass(frozen=True, slots=True)
-class InferenceOutput:
+class FrameInferenceOutput:
     """
-    - input:   original InferenceInput used for this inference
+    - frame_index: int   zero-based frame index (not FrameID) in video. Always 0 for image.
     - masks:   (N, H, W)    bool masks
-    - scores:  (N,)         float32 mask quality scores (e.g. IoU)
-    - boxes:   (N, 4)       float32 [x_min, y_min, x_max, y_max] in pixels
-    - instance_object_ids: (N,) int32 mapping each mask to its object_id
+    - scores:  (N,)         float32 mask quality scores
+    - boxes:   (N, 4)       int32 [x_min, y_min, x_max, y_max] in pixels
+    - instance_ids: (N,)    int32 mapping each mask to its object_id
     - meta:    free-form metadata
     """
+    frame_index:int
     masks: NDArray[np.bool]
     scores: NDArray[np.float32]
     boxes: NDArray[np.int32]
-    instance_object_ids: NDArray[np.int32]
+    instance_ids: NDArray[np.int32]
     meta : dict[str, Any]
 
     @classmethod
-    def empty(cls, meta: dict[str, Any]) -> InferenceOutput:
-        return InferenceOutput(
+    def empty(cls, frame_index: int, meta: dict[str, Any]) -> FrameInferenceOutput:
+        return FrameInferenceOutput(
+            frame_index=frame_index,
             masks=np.zeros((0, 0, 0), dtype=bool),
             scores=np.zeros((0,), dtype=np.float32),
             boxes=np.zeros((0, 4), dtype=np.int32),
-            instance_object_ids=np.zeros((0,), dtype=np.int32),
+            instance_ids=np.zeros((0,), dtype=np.int32),
             meta=meta
         )
 # End of class InferenceOutput
 
 
+@dataclass(frozen=True, slots=True)
+class InferenceOutput:
+    """ High-level output for a single inference request. One output per frame index (not FrameID)."""
+    frame_index_results: dict[int, FrameInferenceOutput]
 
 # --- --- --- Model Interface --- --- ---
 
