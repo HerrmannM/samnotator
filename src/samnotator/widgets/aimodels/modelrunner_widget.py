@@ -76,6 +76,7 @@ class ModelRunnerWidget(QWidget):
     def _init_ui(self) -> None:
         # Connect to model controller
         self.ctl_model.result_inference.connect(self._on_inference_finished)
+        self.ctl_model.result_progress.connect(self._on_inference_progress)
 
         # Kind combo
         self.cbb_kind.setEditable(False)
@@ -93,6 +94,9 @@ class ModelRunnerWidget(QWidget):
         self.btn_unload.clicked.connect(self._on_unload_clicked)
         self.btn_run.clicked.connect(self._on_run_clicked)
 
+        # Label
+        self.lbl_status = QLabel("No model loaded")
+
         # Initial state: no model loaded
         self._set_loaded_state(False)
 
@@ -108,6 +112,7 @@ class ModelRunnerWidget(QWidget):
         r_layout.addWidget(self.btn_unload)
         r_layout.addWidget(self.btn_run)
         r_layout.addStretch(1)
+        r_layout.addWidget(self.lbl_status)
 
         outer = QVBoxLayout()
         outer.addLayout(m_layout)
@@ -150,6 +155,10 @@ class ModelRunnerWidget(QWidget):
         self.btn_run.setEnabled(loaded)
         #
         self._model_loaded = loaded
+        if loaded:
+            self.lbl_status.setText("Model loaded")
+        else:
+            self.lbl_status.setText("No model loaded")
     # End of def _set_loaded_state
 
 
@@ -238,6 +247,7 @@ class ModelRunnerWidget(QWidget):
             self._log(request)
             return
 
+
         # Indicate running state and emit started signal
         if (msg := self.ctl_model.run_inference(request)) is not None:
             self._log(f"ModelRunnerWidget: inference request failed: {msg}")
@@ -252,7 +262,17 @@ class ModelRunnerWidget(QWidget):
     def _on_inference_finished(self, inf_result: InferenceResult) -> None:
         self._set_running_state(running=False)
         self.result_inference_finished.emit(inf_result)
+        self.lbl_status.setText("Inference finished")
     # End of def _on_inference_finished
+
+    
+    @Slot(float, object)
+    def _on_inference_progress(self, progress: float, message: str | None) -> None:
+        msg = f"{progress*100:.1f}%"
+        if message is not None:
+            msg += f" {message}"
+        self.lbl_status.setText(f"Inference {msg}")
+    # End of def _on_inference_progress
 
 
     def _make_request_id(self, model_type: str) -> str:

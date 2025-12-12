@@ -1,36 +1,19 @@
 # --- --- --- Imports --- --- ---
 # STD
 from pathlib import Path
-from typing import Any, cast
+from typing import Callable, cast
 import logging
-
 # 3RD
 import numpy as np
 from numpy.typing import NDArray
 from PIL import Image
 import torch
-from transformers import Sam3TrackerVideoModel, Sam3TrackerVideoProcessor
-
+from transformers import Sam3TrackerVideoModel, Sam3TrackerVideoProcessor, Sam3TrackerVideoInferenceSession
 # Project
-from .interface import (
-    MaskOutputOptions,
-    ModelInterface,
-    ModelOutput,
-    PVSTask,
-    PVSFramePrompt,
-    InferenceInput,
-    InferenceOutput,
-    FrameInferenceOutput,
-    TaskType,
-)
-from .sam3_utils import (
-    Sam3PromptBatch,
-    build_prompt_batches_for_frame,
-    sort_and_flatten_masks_and_scores,
-)
+from .interface import MaskOutputOptions, ModelInterface, ModelOutput, PVSTask, PVSFramePrompt, InferenceInput, InferenceOutput, FrameInferenceOutput, TaskType
+from .sam3_utils import build_prompt_batches_for_frame, sort_and_flatten_masks_and_scores
 
 logger = logging.getLogger(__name__)
-
 
 class Sam3TrackerVideoImplementation(ModelInterface):
     """
@@ -52,9 +35,10 @@ class Sam3TrackerVideoImplementation(ModelInterface):
         self._processor: Sam3TrackerVideoProcessor | None = None
         self._device: torch.device | None = None
         self._loaded: bool = False
+        self._progress_callback: Callable[[float, str|None], None] = lambda progress, msg: None
 
         # HF video session + signature of the underlying frames
-        self._video_session: Any | None = None
+        self._video_session: Sam3TrackerVideoInferenceSession | None = None
         self._video_signature: tuple[str, ...] | None = None
     # End of def __init__
 
@@ -63,34 +47,36 @@ class Sam3TrackerVideoImplementation(ModelInterface):
 
     def name(self) -> str:
         return self._name
+    # End of def name
+
 
     def ready(self) -> bool:
         return self._loaded and self._model is not None and self._processor is not None
+    # End of def ready
+
+
+    def set_progress_callback(self, callback:Callable[[float, str|None], None]) -> None:
+        self._progress_callback = callback
+    # End of def set_progress_callback
+    
 
     def load(self, device: str) -> None:
-        try:
-            if self._loaded and self._device is not None and str(self._device) == device:
-                return
-            if self._loaded:
-                self.unload()
+        if self._loaded and self._device is not None and str(self._device) == device:
+            return
+        if self._loaded:
+            self.unload()
 
-            self._device = torch.device(device)
-            self._model = Sam3TrackerVideoModel.from_pretrained(str(self._model_dir))
-            self._model.to(self._device)  # type: ignore[arg-type]
-            self._processor = Sam3TrackerVideoProcessor.from_pretrained(str(self._model_dir))
-            self._loaded = True
+        self._device = torch.device(device)
+        self._model = Sam3TrackerVideoModel.from_pretrained(str(self._model_dir))
+        self._model.to(self._device)  # type: ignore[arg-type]
+        self._processor = Sam3TrackerVideoProcessor.from_pretrained(str(self._model_dir))
+        self._loaded = True
 
-            # Reset video session on load
-            self._video_session = None
-            self._video_signature = None
-        except Exception as e:
-            logger.error(f"Sam3TrackerVideoImplementation: failed to load model from {self._model_dir!r} on device {device!r}: {e!r}")
-            self._model = None
-            self._processor = None
-            self._device = None
-            self._loaded = False
-            self._video_session = None
-            self._video_signature = None
+        # Reset video session on load
+        self._video_session = None
+        self._video_signature = None
+    # End of def load
+
 
     def unload(self) -> None:
         self._model = None
@@ -100,6 +86,7 @@ class Sam3TrackerVideoImplementation(ModelInterface):
         self._video_session = None
         self._video_signature = None
         torch.cuda.empty_cache()
+    # End of def unload
 
 
     def run(self, input_data: InferenceInput) -> ModelOutput:
@@ -228,47 +215,46 @@ class Sam3TrackerVideoImplementation(ModelInterface):
         video_options = task.video_options
         assert video_options is not None
 
-        # Determine start frame
+        if self._video_session.num_frames is None or self._video_session.num_frames == 0:
+            return InferenceOutput(frame_index_results={})
+
+
+        # --- Option to args
+        start_idx = 0
         if video_options.start_frame_index is not None:
             start_idx = video_options.start_frame_index
-        else:
-            # Default to the smallest frame index present in frame_prompts,
-            # or 0 if none exist.
-            if task.frame_prompts:
-                start_idx = min(fp.frame_index for fp in task.frame_prompts)
-            else:
-                start_idx = 0
-
-        max_to_track = video_options.max_frames  # None -> full video
+        #
+        if (max_to_track := video_options.max_frames) is None:
+            max_to_track = self._video_session.num_frames
+        #
         reverse = video_options.reverse
+        #
+        total_frames = max_to_track - start_idx
 
-        # Collect per-frame results
+
+        # --- Post processing data
+        # Height/width for post-processing
+        original_size = [(self._video_session.video_height, self._video_session.video_width)]
+        # obj_ids are the global SAM3 object IDs corresponding to masks order
+        obj_ids_np: NDArray[np.int32] = np.asarray(self._video_session.obj_ids, dtype=np.int32)
+
+
+        # --- Collect per-frame results
         frame_results: dict[int, FrameInferenceOutput] = {}
 
-        # Iterate over propagated frames
-        iterator = self._model.propagate_in_video_iterator(
-            self._video_session,
-            start_frame_idx=start_idx,
-            max_frame_num_to_track=max_to_track,
-            reverse=reverse,
-        )
 
-        # Height/width for post-processing
-        video_h = self._video_session.video_height
-        video_w = self._video_session.video_width
-
-        # obj_ids are the global SAM3 object IDs corresponding to masks order
-        obj_ids_np: NDArray[np.int32] = np.asarray(
-            self._video_session.obj_ids, dtype=np.int32
-        )
-
-        for out in iterator:
-            frame_idx: int = int(out.frame_idx)
+        # ---Run Model iterator
+        iterator = self._model.propagate_in_video_iterator( self._video_session, start_frame_idx=start_idx, max_frame_num_to_track=max_to_track, reverse=reverse)
+        for idx, out in enumerate(iterator):
+            if out.frame_idx is None:
+                continue
+            frame_idx: int = out.frame_idx
+            self._progress_callback( (idx+1)/total_frames, None)
             # out.pred_masks: raw logits or probabilities in model space
             pred_masks = out.pred_masks
 
             # HF example: post_process_masks expects a *list* of pred_masks
-            post_masks = self._processor.post_process_masks( [pred_masks.detach().cpu()], original_sizes=[[video_h, video_w]],)[0]
+            post_masks = self._processor.post_process_masks( [pred_masks.detach().cpu()], original_sizes=original_size)[0]
 
             if isinstance(post_masks, torch.Tensor):
                 masks_np: NDArray[np.bool] = post_masks.numpy()  # (num_objects, num_masks, H, W)

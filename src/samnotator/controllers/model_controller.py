@@ -40,6 +40,7 @@ class ModelController(QObject):
     # Worker -> controller -> OUTSIDE
     result_inference = Signal(InferenceResult)
     result_log = Signal(str)
+    result_progress = Signal(float, object)         # progress [0.0-1.0], message str|None
 
     
     # --- --- --- Constructor --- --- ---
@@ -166,6 +167,10 @@ class ModelController(QObject):
         self.result_log.emit(f"Worker log: {message}")
     # End of def _on_worker_log
 
+
+    def _on_worker_progress(self, progress: float, message: str | None) -> None:
+        self.result_progress.emit(progress, message)
+    # End of def _on_worker_progress
     
     # --- --- --- Public Methods --- --- ---
 
@@ -173,6 +178,7 @@ class ModelController(QObject):
         self._reset_worker()
         builder = self._get_wrapper_builder(wrapper_name)
         if (mi := builder(path)) is not None:
+            mi.set_progress_callback(self._on_worker_progress)
             self.request_model_load.emit(mi, device)
         else:
             raise RuntimeError(f"ModelInterface builder failed for type {wrapper_name} at path {path}")
@@ -194,4 +200,7 @@ class ModelController(QObject):
             self._active_requests[inference_requested.request_id] = inference_requested
             self.request_model_inference.emit(inference_requested.request_id, inference_requested.input_data)
     # End of def run_inference
+
+    
+
 # End of class ModelController

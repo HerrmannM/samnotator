@@ -179,6 +179,12 @@ class ModelInterface(Protocol):
         """Called only from the worker thread.  Must return an InferenceResult."""
         ...
     #
+
+    
+    def set_progress_callback(self, callback:Callable[[float, str|None], None]) -> None:
+        """ Set a progress callback function taking (progress: float [0.0-1.0], message: str|None). """
+        ...
+    #
 # End of class Protocol ModelInterface
 
 

@@ -1,7 +1,7 @@
 # --- --- --- Imports --- --- ---
 # STD
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, cast, Callable
 import logging
 # 3RD
 import numpy as np
@@ -44,6 +44,7 @@ class Sam3TrackerImplementation(ModelInterface):
         self._processor: Sam3TrackerProcessor | None = None
         self._device: torch.device | None = None
         self._loaded: bool = False
+        self._progress_callback: Callable[[float, str|None], None] = lambda progress, msg: None
     # End of def __init__
 
 
@@ -57,6 +58,11 @@ class Sam3TrackerImplementation(ModelInterface):
     def ready(self) -> bool:
         return self._loaded and self._model is not None and self._processor is not None
     # End of def ready
+
+
+    def set_progress_callback(self, callback:Callable[[float, str|None], None]) -> None:
+        self._progress_callback = callback
+    # End of def set_progress_callback
 
 
     def load(self, device: str) -> None:
