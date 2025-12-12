@@ -223,9 +223,17 @@ class AppController(QObject):
             json.dump(data_to_save, f, indent=4)
 
         # Masks
+        # Only saves frames that have detections
         mask_dir = dir_path / "masks"
         mask_dir.mkdir(exist_ok=True)
-        for frame_id, instances in annotated_frames.items():
+
+        detection_frames:dict[FrameID, set[InstanceID]] = defaultdict(set)
+
+        for instance_id, instance_info in self.ctl_instances.instances.items():
+            for frame_id in instance_info.instance.detections.keys():
+                detection_frames[frame_id].add(instance_id)
+
+        for frame_id, instances in detection_frames.items():
             m = self.ctl_instances.get_mask_for_frame(frame_id)
             if m is not None:
                 all_mask_path = mask_dir / f"f{frame_id}.png"
