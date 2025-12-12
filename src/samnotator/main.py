@@ -31,7 +31,7 @@ class MainWindow(QMainWindow):
         # Components
         self.menubar = QMenuBar(self)
         self.statusbar = QStatusBar(self)
-        self.status_bar_controller = StatusBarController(self.statusbar, self)
+        self.status_bar_controller = StatusBarController(self.statusbar, app_widget.controller.ctl_frames, self)
         self.app_widget = app_widget
         self.app_controller = app_widget.controller
 
